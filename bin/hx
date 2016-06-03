@@ -1,0 +1,3 @@
+#!/bin/sh
+
+exec $TRON_ACTORCORE_DIR/bin/oneCmd.py hx "$@"
