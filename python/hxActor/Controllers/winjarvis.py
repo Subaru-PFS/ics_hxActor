@@ -1,10 +1,6 @@
 import logging
 import select
 import socket
-import sys
-import time
-
-import numpy as np
 
 class winjarvis(object):
     def __init__(self, actor, name,
@@ -35,7 +31,8 @@ class winjarvis(object):
         if self.sock is not None and not force:
             return self.sock
         
-        cmd.inform('text="connecting socket to %s..."' % (self.name))
+        if cmd is not None:
+            cmd.inform('text="connecting socket to %s..."' % (self.name))
         self.sock = None
         
         try:
@@ -55,14 +52,21 @@ class winjarvis(object):
         self.sock = s
         return s
     
-    def getOneChar(self, s, timeout=2, cmd=None):
+    def getOneChar(self, s=None, timeout=2, cmd=None):
+        if s is None:
+            s = self.connect(cmd=cmd)
+
         readers, writers, broken = select.select([s.fileno()], [], [], timeout)
         if len(readers) == 0:
-            cmd.warn('text="Timed out reading character from %s controller"' % (self.name))
+            if cmd is not None:
+                cmd.warn('text="Timed out reading character from %s controller"' % (self.name))
             raise RuntimeError('timeout')
         return s.recv(1)
 
-    def getOneResponse(self, s, cmd=None, timeout=5):
+    def getOneResponse(self, s=None, cmd=None, timeout=5):
+        if s is None:
+            s = self.connect(cmd=cmd)
+
         ret = ''
         while not ret.endswith(self.EOL):
             c = self.getOneChar(s, cmd=cmd, timeout=(timeout if not ret else None))
@@ -72,7 +76,7 @@ class winjarvis(object):
         cmd.diag('text="raw from %s: %r"' % (self.name, ret))
         return ret
     
-    def sendOneCommand(self, cmdStr, cmd=None, timeout=None):
+    def sendOneCommand(self, cmdStr, cmd=None, timeout=None, noResponse=False):
         if cmd is None:
             cmd = self.actor.bcast
 
@@ -89,15 +93,18 @@ class winjarvis(object):
             self.sock = None
             raise
 
-        try:
-            ret = self.getOneResponse(self.sock, cmd=cmd, timeout=timeout) 
-        except socket.error as e:
-            cmd.warn('text="failed to read response from %s: %s"' % (self.name, e))
-            self.sock = None
-            raise
+        if not noResponse:
+            try:
+                ret = self.getOneResponse(self.sock, cmd=cmd, timeout=timeout) 
+            except socket.error as e:
+                cmd.warn('text="failed to read response from %s: %s"' % (self.name, e))
+                self.sock = None
+                raise
 
-        self.logger.debug('received %r', ret)
-        cmd.diag('text="received %r"' % ret)
-
+            self.logger.debug('received %r', ret)
+            cmd.diag('text="received %r"' % ret)
+        else:
+            ret = None
+            
         return ret
 
