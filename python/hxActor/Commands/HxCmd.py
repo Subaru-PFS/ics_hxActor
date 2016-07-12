@@ -152,7 +152,7 @@ class HxCmd(object):
             while rampsDone < nramp:
                 event = fileQ.get(timeout=timeLimits[0])
 
-                cmd.inform('text="filesys event: %s"' % (event))
+                cmd.diag('text="filesys event: %s"' % (event))
                 fileOrDir, action, path = event.split()
 
                 if fileOrDir == 'file' and action == 'done':
@@ -160,6 +160,7 @@ class HxCmd(object):
                                                                               rampsDone+1,nramp,
                                                                               path))
                     readsDone += 1
+                    
                 if readsDone >= nread:
                     rampsDone += 1
                     readsDone = 0
