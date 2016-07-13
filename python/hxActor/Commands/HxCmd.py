@@ -123,7 +123,7 @@ class HxCmd(object):
         cmd.finish('text="%s"' % (ret))
 
 
-    def flush(self, cmd, doFinish=True):
+    def flushProgramInput(self, cmd, doFinish=True):
         debris = ''
         while True:
             try:
@@ -199,7 +199,7 @@ class HxCmd(object):
         cmd.inform('text="configuring ramp..."')
         cmd.inform('ramp=%d,%d,%d,%d,%d' % (nramp,ngroup,nreset,nread,ndrop))
 
-        self.flush(cmd, doFinish=False)
+        self.flushProgramInput(cmd, doFinish=False)
         
         ctrlr = self.controller
         ret = ctrlr.sendOneCommand('setRampParam(%d,%d,%d,%d,%d)' %
