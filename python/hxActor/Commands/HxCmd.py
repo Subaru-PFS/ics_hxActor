@@ -14,6 +14,8 @@ reload(hxActor.winFiles)
 class HxCmd(object):
 
     def __init__(self, actor):
+        self.readTime = 1.47528
+        
         # This lets us access the rest of the actor.
         self.actor = actor
 
@@ -28,8 +30,8 @@ class HxCmd(object):
             ('getconfig', '', self.winGetconfig),
             ('single', '', self.takeSingle),
             ('cds', '', self.takeCDS),
-            ('flush', '', self.flush),
-            ('ramp', '[<nramp>] [<nreset>] [<nread>] [<ngroup>] [<ndrop>] [@splitRamps]', self.takeRamp),
+            ('flush', '', self.flushProgramInput),
+            ('ramp', '[<nramp>] [<nreset>] [<nread>] [<ngroup>] [<ndrop>] [<itime>] [@splitRamps]', self.takeRamp),
         ]
 
         # Define typed command arguments for the above commands.
@@ -44,6 +46,8 @@ class HxCmd(object):
                                                  help='number of groups.'),
                                         keys.Key("ndrop", types.Int(), default=0,
                                                  help='number of drops to waste.'),
+                                        keys.Key("itime", types.Float(), default=None,
+                                                 help='desired integration time'),
                                         )
 
         self.rampConfig = None
@@ -89,15 +93,16 @@ class HxCmd(object):
         return parts
     
     def _calcAcquireTimeout(self, expType='ramp', cmd=None):
-        expTime = 1.5
+        """ Return the best estimate of the actual expected time for our current rampConfig. """
+        
         if expType == 'ramp':
-            return expTime * (self.rampConfig['nread'] +
-                              self.rampConfig['nreset'] +
-                              self.rampConfig['ndrop'])
+            return self.readTime * (self.rampConfig['nread'] +
+                                    self.rampConfig['nreset'] +
+                                    self.rampConfig['ndrop'])
         elif expType == 'single':
-            return expTime * (1 + self.rampConfig['nreset'])
+            return self.readTime * (1 + self.rampConfig['nreset'])
         elif expType == 'CDS':
-            return expTime * (2 + self.rampConfig['nreset'])
+            return self.readTime * (2 + self.rampConfig['nreset'])
         else:
             raise RuntimeError("unknown expType %s" % (expType))
         
@@ -177,10 +182,17 @@ class HxCmd(object):
         nread = cmdKeys['nread'].values[0] if ('nread' in cmdKeys) else 1
         ndrop = cmdKeys['ndrop'].values[0] if ('ndrop' in cmdKeys) else 0
         ngroup = cmdKeys['ngroup'].values[0] if ('ngroup' in cmdKeys) else 1
+        itime = cmdKeys['itime'].values[0] if ('itime' in cmdKeys) else None
         
-        cmd.diag('text="ramps=%s resets=%s reads=%s rdrops=%s rgroups=%s"' %
-                 (nramp, nreset, nread, ndrop, ngroup))
+        cmd.diag('text="ramps=%s resets=%s reads=%s rdrops=%s rgroups=%s itime=%s"' %
+                 (nramp, nreset, nread, ndrop, ngroup, itime))
 
+        if itime is not None:
+            if 'nread' in cmdKeys:
+                cmd.fail('text="cannot specify both nread= and itime="')
+                return
+            nread = int(itime / self.readTime)
+        
         dosplit = 'splitRamps' in cmdKeys
         nrampCmds = nramp if dosplit else 1
 
