@@ -148,7 +148,28 @@ class HxCmd(object):
             
         if doFinish:
             cmd.finish()
+
+    def consumeRead(self, path, cmd):
+        #  /home/data/wincharis/H2RG-C17206-ASIC-104/UpTheRamp/20160712210126/H2RG_R01_M01_N01.fits
+        dirName, fileName = os.path.split(path)
+        cmd.diag('text="checking %s"' % (fileName))
+        match = re.match('^H2RG_R0*(\d+)_M0*(\d+)_N0*(\d+)\.fits', fileName)
+        if match is None:
+            cmd.warn("failed to split up filename: %s" % (file))
+            return
+        rampN, groupN, readN = [int(m) for m in match.group(1,2,3)]
+        cmd.diag('text="new read %d %d %d"' % (rampN, groupN, readN))
+        if readN == 1:
+            self.outfile = newFilename = self.fileGenerator.getNextFileset()[0]
+            prihdr = pyfits.Header()
+            prihdr['IDLPATH'] = dirName
+            phdu = pyfits.PrimaryHDU(header=prihdr)
+            phdu.writeto(newFilename, checksum=True)
             
+        inData, inHdr = pyfits.getdata(path, header=True, uint=True)
+        pyfits.append(self.outfile, inData, header=inHdr, checksum=True, uint=True)
+        cmd.inform('readN=%d,%d,%d,%s' % (rampN,groupN,readN,self.outfile))
+    
     def consumeRamps(self, nramp, ngroup, nreset, nread, ndrop, cmd, timeLimits=None):
         if timeLimits is None:
             timeLimits = (nreset*1.5+15,
@@ -163,6 +184,7 @@ class HxCmd(object):
         try:
             rampsDone = 0
             readsDone = 0
+            cmd.inform('text="ramp %d/%d starting %d resets..."' % (rampsDone+1, nramp, nreset))
             while rampsDone < nramp:
                 event = fileQ.get(timeout=timeLimits[0])
 
@@ -170,19 +192,26 @@ class HxCmd(object):
                 fileOrDir, action, path = event.split()
 
                 if fileOrDir == 'file' and action == 'done':
-                    cmd.inform('text="new read (%d/%d in ramp %d/%d): %s"' % (readsDone+1,nread,
-                                                                              rampsDone+1,nramp,
-                                                                              path))
+                    cmd.debug('text="new read (%d/%d in ramp %d/%d): %s"' % (readsDone+1,nread,
+                                                                             rampsDone+1,nramp,
+                                                                             path))
                     readsDone += 1
+                    self.consumeRead(path, cmd)
                     
                 if readsDone >= nread:
                     rampsDone += 1
                     readsDone = 0
-            cmd.inform('text="ramps done (%d/%d)"' % (rampsDone+1,nramp))
+                    cmd.inform('filename=%s' % (self.outfile))
+                    self.outfile = None
+                    if rampsDone < nramp:
+                        cmd.inform('text="ramp %d/%d starting %d resets..."' % (rampsDone+1, nramp, nreset))
+                        
         except Exception as e:
             cmd.warn('winfile readers failed with %s' % (e))
             fileAlerts.terminate()
-    
+
+        self.outfile = None
+        
     def takeRamp(self, cmd):
         cmdKeys = cmd.cmd.keywords
 
@@ -205,6 +234,10 @@ class HxCmd(object):
         dosplit = 'splitRamps' in cmdKeys
         nrampCmds = nramp if dosplit else 1
 
+        if nread * nramp * ngroup == 0:
+            cmd.fail('text="all of nramp,ngroup,(nread or itime) must be positive"')
+            return
+        
         cmd.inform('text="configuring ramp..."')
         cmd.inform('ramp=%d,%d,%d,%d,%d' % (nramp,ngroup,nreset,nread,ndrop))
 
