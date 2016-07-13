@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+import os.path
+import re
 import time
 
 import astropy.io.fits as pyfits
@@ -51,6 +53,13 @@ class HxCmd(object):
                                         )
 
         self.rampConfig = None
+
+        self.dataRoot = "/home/data/charis"
+        self.dataPrefix = "CRSA"
+        
+        from utils import seqPath
+        self.fileGenerator = seqPath.NightFilenameGen(self.dataRoot,
+                                                      filePrefix=self.dataPrefix)
         
     @property
     def controller(self):
