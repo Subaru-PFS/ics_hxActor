@@ -4,7 +4,7 @@ import os.path
 import re
 import time
 
-import astropy.io.fits as pyfits
+import fitsio
 
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
@@ -160,14 +160,18 @@ class HxCmd(object):
         rampN, groupN, readN = [int(m) for m in match.group(1,2,3)]
         cmd.diag('text="new read %d %d %d"' % (rampN, groupN, readN))
         if readN == 1:
-            self.outfile = newFilename = self.fileGenerator.getNextFileset()[0]
-            prihdr = pyfits.Header()
-            prihdr['IDLPATH'] = dirName
-            phdu = pyfits.PrimaryHDU(header=prihdr)
-            phdu.writeto(newFilename, checksum=True)
+            self.outfile = self.fileGenerator.getNextFileset()[0]
+            cmd.diag('text="new filename %s"' % (self.outfile))
+            cards = [dict(name='IDLPATH', value=dirName)]
+            phdu = fitsio.FITSHDR(cards)
+            fitsio.write(self.outfile, None, header=phdu, clobber=True)
+            cmd.diag('text="new file %s"' % (self.outfile))
             
-        inData, inHdr = pyfits.getdata(path, header=True, uint=True)
-        pyfits.append(self.outfile, inData, header=inHdr, checksum=True, uint=True)
+        inData, inHdr = fitsio.read(path, header=True)
+        stackFile = fitsio.FITS(self.outfile, mode='rw')
+        stackFile.write(inData, header=inHdr)
+        stackFile[-1].write_checksum()
+        stackFile.close()
         cmd.inform('readN=%d,%d,%d,%s' % (rampN,groupN,readN,self.outfile))
     
     def consumeRamps(self, nramp, ngroup, nreset, nread, ndrop, cmd, timeLimits=None):
@@ -229,7 +233,7 @@ class HxCmd(object):
             if 'nread' in cmdKeys:
                 cmd.fail('text="cannot specify both nread= and itime="')
                 return
-            nread = int(itime / self.readTime)
+            nread = int(itime / self.readTime) + 1
         
         dosplit = 'splitRamps' in cmdKeys
         nrampCmds = nramp if dosplit else 1
@@ -278,8 +282,3 @@ class HxCmd(object):
         cmd.finish('text="%d ramps, elapsed=%0.3f, perRamp=%0.3f, perRead=%0.3f"' %
                    (nramp, dt, dt/nramp, dt/(nramp*(nread+nreset+ndrop))))
             
-            
-        
-
-        
-                
