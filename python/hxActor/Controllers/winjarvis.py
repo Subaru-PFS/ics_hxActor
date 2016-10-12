@@ -69,11 +69,12 @@ class winjarvis(object):
         readers, writers, broken = _eintr_retry(select.select, [s], [], [], timeout)
         if len(readers) == 0:
             if cmd is not None:
-                cmd.warn('text="Timed out reading character from %s controller"' % (self.name))
+                cmd.warn('text="Timed out (%s) reading character from %s controller"' % (timeout,
+                                                                                         self.name))
             raise RuntimeError('timeout')
         return s.recv(1)
 
-    def getOneResponse(self, s=None, cmd=None, timeout=5):
+    def getOneResponse(self, s=None, cmd=None, timeout=10):
         if s is None:
             s = self.connect(cmd=cmd)
 
@@ -81,7 +82,9 @@ class winjarvis(object):
         while not ret.endswith(self.EOL):
             c = self.getOneChar(s, cmd=cmd, timeout=(timeout if not ret else None))
             ret += c
-
+            if cmd is not None:
+                cmd.diag('text="response: %r"' % (ret))
+            
         ret = ret[:-len(self.EOL)]
         cmd.diag('text="raw from %s: %r"' % (self.name, ret))
         return ret
