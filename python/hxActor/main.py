@@ -17,6 +17,16 @@ class OurActor(actorcore.ICC.ICC):
                                    configFile=configFile,
                                    modelNames=modelNames)
 
+        self.everConnected = False
+        
+    def connectionMade(self):
+        if self.everConnected is False:
+            self.logger.info("Attaching all controllers...")
+            self.allControllers = [s.strip() for s in self.config.get(self.name, 'startingControllers').split(',')]
+            self.attachAllControllers()
+            self.everConnected = True
+        
+
 #
 # To work
 def main():
