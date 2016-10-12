@@ -173,7 +173,69 @@ class HxCmd(object):
         stackFile[-1].write_checksum()
         stackFile.close()
         cmd.inform('readN=%d,%d,%d,%s' % (rampN,groupN,readN,self.outfile))
+
+    def getSubaruHeader(self, frameId, itime, timeout=1.0, cmd=None):
     
+        headerTask = subaru.FetchHeader(frameId=frameId, itime=itime)
+        self.logger.debug('text="starting header task timeout=%s"' % (timeout))
+        headerTask.start()
+        headerQ = headerTask.q
+        self.logger.info('text="header q: %s"' % (headerQ))
+        
+        try:
+            hdr = headerQ.get(True, timeout)
+            if hdr is None:
+                self.logger.debug('text=".get header: %s"' % (hdr))
+            else:
+                self.logger.debug('text=".get header: %s"' % (len(hdr)))
+        except Exception as e:
+            self.logger.warn('text="failed to .getHeader header: %s"' % (e))
+            cmd.warn('text="failed to .getHeader header: %s"' % (e))
+            hdr = None
+        finally:
+            headerTask.terminate()
+            time.sleep(0.1)
+            
+        return hdr
+
+    def getCharisCards(self, cmd):
+        charisModel = self.actor.models['charis'].keyVarDict
+        cards = []
+
+        cards.append(actorFits.makeCardFromKey(cmd, charisModel,
+                                               'filterSlot', 'CHARIS.FILTER.NAME', idx=1,
+                                               comment='current filter name'))
+        cards.append(actorFits.makeCardFromKey(cmd, charisModel,
+                                               'filterSlot', 'CHARIS.FILTER.SLOT', cnv=int, idx=0,
+                                               comment='current filter slot'))
+        cards.append(actorFits.makeCardFromKey(cmd, charisModel,
+                                               'shutter', 'CHARIS.SHUTTER', idx=1,
+                                               comment='shutter position'))
+        cards.append(actorFits.makeCardFromKey(cmd, charisModel,
+                                               'laserState', 'CHARIS.LASER.ENABLED', cnv=bool, idx=0,
+                                               comment='is laserState enabled'))
+        cards.append(actorFits.makeCardFromKey(cmd, charisModel,
+                                               'laserState', 'CHARIS.LASER.POWER', idx=2,
+                                               comment='laser power, percent'))
+        cards.append(actorFits.makeCardFromKey(cmd, charisModel,
+                                               'laserState', 'CHARIS.LASER.ALARMS', idx=3,
+                                               comment='laser alarms'))
+        for i in range(10):
+            cards.append(actorFits.makeCardFromKey(cmd, charisModel,
+                                                   'temps', 'CHARIS.TEMPS.%d'%i, idx=i,
+                                                   comment='temperature sensor %d'%i))
+            
+        return cards
+        
+    def getHeader(self, frameId, itime, timeout=1.0, cmd=None):
+        hdr = self.getSubaruHeader(frameId, itime, timeout=timeout, cmd=cmd)
+        charisCards = self.getCharisCards(cmd)
+
+        for c in charisCards:
+            hdr.append(c)
+            
+        return hdr
+            
     def consumeRamps(self, nramp, ngroup, nreset, nread, ndrop, cmd, timeLimits=None):
         if timeLimits is None:
             timeLimits = (nreset*1.5+15,
