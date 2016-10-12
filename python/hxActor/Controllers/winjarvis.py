@@ -1,6 +1,16 @@
+import errno
 import logging
 import select
 import socket
+
+def _eintr_retry(func, *args):
+    """restart a system call interrupted by EINTR"""
+    while True:
+        try:
+            return func(*args)
+        except (OSError, select.error) as e:
+            if e.args[0] != errno.EINTR:
+                raise
 
 class winjarvis(object):
     def __init__(self, actor, name,
@@ -56,7 +66,7 @@ class winjarvis(object):
         if s is None:
             s = self.connect(cmd=cmd)
 
-        readers, writers, broken = select.select([s.fileno()], [], [], timeout)
+        readers, writers, broken = _eintr_retry(select.select, [s], [], [], timeout)
         if len(readers) == 0:
             if cmd is not None:
                 cmd.warn('text="Timed out reading character from %s controller"' % (self.name))
@@ -96,7 +106,7 @@ class winjarvis(object):
         if not noResponse:
             try:
                 ret = self.getOneResponse(self.sock, cmd=cmd, timeout=timeout) 
-            except socket.error as e:
+            except Exception as e:
                 cmd.warn('text="failed to read response from %s: %s"' % (self.name, e))
                 self.sock = None
                 raise
