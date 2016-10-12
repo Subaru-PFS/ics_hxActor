@@ -159,7 +159,7 @@ class HxCmd(object):
         if doFinish:
             cmd.finish()
 
-    def consumeRead(self, path, cmd):
+    def consumeRead(self, path, cmd, header=None):
         #  /home/data/wincharis/H2RG-C17206-ASIC-104/UpTheRamp/20160712210126/H2RG_R01_M01_N01.fits
         dirName, fileName = os.path.split(path)
         cmd.diag('text="checking %s"' % (fileName))
@@ -170,9 +170,14 @@ class HxCmd(object):
         rampN, groupN, readN = [int(m) for m in match.group(1,2,3)]
         cmd.diag('text="new read %d %d %d"' % (rampN, groupN, readN))
         if readN == 1:
-            self.outfile = self.fileGenerator.getNextFileset()[0]
-            cmd.diag('text="new filename %s"' % (self.outfile))
+            if header is not None:
+                cmd.diag('text="getting header"')
+                subaruHdr = header
+            else:
+                subaruHdr = pyfits.Header()
             cards = [dict(name='IDLPATH', value=dirName)]
+            for c in subaruHdr.cards:
+                cards.append(dict(name=c.keyword, value=c.value, comment=c.comment))
             phdu = fitsio.FITSHDR(cards)
             fitsio.write(self.outfile, None, header=phdu, clobber=True)
             cmd.diag('text="new file %s"' % (self.outfile))
@@ -272,7 +277,7 @@ class HxCmd(object):
                                                                              rampsDone+1,nramp,
                                                                              path))
                     readsDone += 1
-                    self.consumeRead(path, cmd)
+                    self.consumeRead(path, cmd, header)
                     
                 if readsDone >= nread:
                     rampsDone += 1
