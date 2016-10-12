@@ -41,37 +41,44 @@ def trackWinDir(rootDir, q, logger=None, timeLimit=None):
             lastTime = thisTime
             continue
 
-        (header, events, watch_path, filename) = event
+        try:
+            (header, events, watch_path, filename) = event
+            logger.info('new fs event: %s', event)
+            filepath = os.path.join(watch_path, filename)
+            if 'IN_ISDIR' in events:
 
-        filepath = os.path.join(watch_path, filename)
-        if 'IN_ISDIR' in events:
-            if 'IN_CREATE' in events:
-                if filename[:3] == '201':
-                    lastWatch = subDirs.get(watch_path, None)
-                    if lastWatch is not None:
-                        q.put('dir done %s' % (lastWatch))
-                        i.remove_watch(lastWatch)
-                    subDirs[watch_path] = filepath
-                    i.add_watch(filepath)
-                    q.put('dir add %s' % (filepath))
-                    continue
+                    if filename[:3] == '201':
+                        lastWatch = subDirs.get(watch_path, None)
+                        if lastWatch is not None:
+                            q.put('dir done %s' % (lastWatch))
+                            i.remove_watch(lastWatch)
+                            if doOneOnly:
+                                q.put('alldone alldone alldone')
+                                return
+                        subDirs[watch_path] = filepath
+                        i.add_watch(filepath)
+                        q.put('dir add %s' % (filepath))
+                        continue
             elif 'IN_CLOSE_NOWRITE' in events:
+                    continue
+            elif 'IN_CREATE' in events and filename.startswith('H2RG_'):
+                q.put('file add %s' % (filepath))
                 continue
-        elif 'IN_CREATE' in events and filename.startswith('H2RG_'):
-            q.put('file add %s' % (filepath))
-            continue
-        elif 'IN_CLOSE_WRITE' in events and filename.startswith('H2RG_'):
-            if filepath not in filesDone:
-                filesDone[filepath] = True
-                q.put('file done %s' % (filepath))
+            elif 'IN_CLOSE_WRITE' in events and filename.startswith('H2RG_'):
+                if filepath not in filesDone:
+                    filesDone[filepath] = True
+                    q.put('file done %s' % (filepath))
+                continue
+
+            if 'IN_MODIFY' not in events:
+                logger.debug("WD=(%d) MASK=(%d) COOKIE=(%d) LEN=(%d) MASK->NAMES=%s "
+                             "WATCH-PATH=[%s] FILENAME=[%s]",
+                             header.wd, header.mask, header.cookie, header.len, events,
+                             watch_path, filename)
+        except Exception as e:
+            logger.error("error handling fs event %s: %s", event, e)
             continue
         
-        if 'IN_MODIFY' not in events:
-            logger.debug("WD=(%d) MASK=(%d) COOKIE=(%d) LEN=(%d) MASK->NAMES=%s "
-                         "WATCH-PATH=[%s] FILENAME=[%s]",
-                         header.wd, header.mask, header.cookie, header.len, events,
-                         watch_path, filename)
-
 class FileAlert(multiprocessing.Process):
     def __init__(self, topDir, logger=None, timeLimit=15):
         super(FileAlert, self).__init__(name="FileAlert(%s)" % (topDir))
