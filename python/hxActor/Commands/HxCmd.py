@@ -266,10 +266,21 @@ class HxCmd(object):
             rampsDone = 0
             readsDone = 0
             cmd.inform('text="ramp %d/%d starting %d resets..."' % (rampsDone+1, nramp, nreset))
+            self.outfile = self.fileGenerator.getNextFileset()[0]
+            cmd.inform('text="new filename %s"' % (self.outfile))
+            try:
+                header = self.getHeader(self.fileGenerator.seqno, nread*self.readTime, cmd=cmd)
+                cmd.debug('text="header process returned %s"' % (None if header is None else len(header)))
+            except Exception, e:
+                cmd.warn('text="failed to start header process: %s"' % (e))
+                header = None
+            
             while rampsDone < nramp:
+                if readsDone == 0:
+                    cmd.debug('text="waiting for filesys event...')
                 event = fileQ.get(timeout=timeLimits[0])
 
-                cmd.diag('text="filesys event: %s"' % (event))
+                cmd.debug('text="filesys event: %s"' % (event))
                 fileOrDir, action, path = event.split()
 
                 if fileOrDir == 'file' and action == 'done':
@@ -286,11 +297,21 @@ class HxCmd(object):
                     self.outfile = None
                     if rampsDone < nramp:
                         cmd.inform('text="ramp %d/%d starting %d resets..."' % (rampsDone+1, nramp, nreset))
+                        self.outfile = self.fileGenerator.getNextFileset()[0]
+                        cmd.diag('text="new filename %s"' % (self.outfile))
+                        try:
+                            header = self.getHeader(self.fileGenerator.seqno, nread*self.readTime, cmd=cmd)
+                        except Exception, e:
+                            cmd.warn('text="failed to start header process: %s"' % (e))
+                            header = None
                         
         except Exception as e:
             cmd.warn('winfile readers failed with %s' % (e))
             fileAlerts.terminate()
-
+        finally:
+            fileAlerts.terminate()
+            del fileAlerts
+            
         self.outfile = None
         
     def takeRamp(self, cmd):
