@@ -5,10 +5,12 @@ import re
 import time
 
 import fitsio
+import astropy.io.fits as pyfits
 
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
 from opscore.utility.qstr import qstr
+import actorcore.utility.fits as actorFits
 
 import hxActor.winFiles
 reload(hxActor.winFiles)
@@ -23,7 +25,8 @@ class HxCmd(object):
         
         # This lets us access the rest of the actor.
         self.actor = actor
-
+        self.logger = self.actor.logger
+        
         # Declare the commands we implement. When the actor is started
         # these are registered with the parser, which will call the
         # associated methods when matched. The callbacks will be
@@ -60,7 +63,7 @@ class HxCmd(object):
         self.dataRoot = "/home/data/charis"
         self.dataPrefix = "CRSA"
         
-        from utils import seqPath
+        from hxActor import seqPath
         self.fileGenerator = seqPath.NightFilenameGen(self.dataRoot,
                                                       filePrefix=self.dataPrefix)
         
@@ -72,6 +75,8 @@ class HxCmd(object):
         self.controller.disconnect()
         
     def winRaw(self, cmd):
+        """ Tunnel a rawCmd command to these Windows IDL program. """
+        
         cmdKeys = cmd.cmd.keywords
 
         ctrl = self.actor.controllers['winjarvis']
@@ -82,6 +87,8 @@ class HxCmd(object):
         cmd.finish('text="raw: %s"' % (ret))
 
     def winGetconfig(self, cmd, doFinish=True):
+        """ Fetch the results of these Windows IDL 'getconfiguration' command. """
+
         ctrl = self.actor.controllers['winjarvis']
 
         ret = ctrl.sendOneCommand('getconfig', cmd=cmd)
