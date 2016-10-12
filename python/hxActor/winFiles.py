@@ -6,7 +6,7 @@ import time
 
 import inotify.adapters
 
-def trackWinDir(rootDir, q, logger=None, timeLimit=None):
+def trackWinDir(rootDir, q, logger=None, timeLimit=None, doOneOnly=False):
     """ Generate notifications of directory and file events from the Teledyne IDL software..
 
     Specifically, we expect `rootDir` to be the per-detectory directory which contains 
