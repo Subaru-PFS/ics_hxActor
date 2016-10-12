@@ -52,7 +52,8 @@ class NightFilenameGen(object):
         self.seqnoFile = seqnoFile
 
         self.seqnoFileLock = threading.Lock()
-
+        self.seqno = 0
+        
         self.setup()
         
     def setup(self, rootDir=None, seqnoFile=None, seqno=1):
@@ -101,6 +102,7 @@ class NightFilenameGen(object):
                 raise RuntimeError("could not WRITE sequence integer to %s: %s" %
                                    (self.seqnoFile, e))
 
+        self.seqno = nextSeqno
         return nextSeqno
 
     def dirname(self):
