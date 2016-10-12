@@ -20,20 +20,21 @@ def trackWinDir(rootDir, q, logger=None, timeLimit=None, doOneOnly=False):
 
     """
 
-    if logger is None:
-        logger = logging
-
     sectionsToWatch = {'UpTheRamp'}
     subDirs = dict()
     filesDone = dict()
+
+    logger.debug('setting up inotify')
     
     i = inotify.adapters.Inotify()
     i.add_watch(rootDir)
     for d in sectionsToWatch:
         i.add_watch(os.path.join(rootDir, d))
 
+    logger.debug('looping on inotify')
     lastTime = time.time()
     for event in i.event_gen():
+        logger.debug('inotify event: %s', event)
         if event is None:
             thisTime = time.time()
             if thisTime - lastTime > timeLimit:
