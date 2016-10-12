@@ -13,6 +13,9 @@ from opscore.utility.qstr import qstr
 import hxActor.winFiles
 reload(hxActor.winFiles)
 
+import hxActor.subaru as subaru
+reload(subaru)
+
 class HxCmd(object):
 
     def __init__(self, actor):
