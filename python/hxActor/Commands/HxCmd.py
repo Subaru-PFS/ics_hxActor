@@ -382,7 +382,7 @@ class HxCmd(object):
         dosplit = 'splitRamps' in cmdKeys
         nrampCmds = nramp if dosplit else 1
 
-        if nread * nramp * ngroup == 0:
+        if nread <= 0 or nramp <= 0 or ngroup <= 0:
             cmd.fail('text="all of nramp,ngroup,(nread or itime) must be positive"')
             return
         
