@@ -33,6 +33,7 @@ class HxCmd(object):
         # passed a single argument, the parsed and typed command.
         #
         self.vocab = [
+            ('backend', '@(windows|unix)', self.setBackend),
             ('win', '@raw', self.winRaw),
             ('bounce', '', self.bounce),
             ('getconfig', '', self.winGetconfig),
@@ -58,6 +59,7 @@ class HxCmd(object):
                                                  help='desired integration time'),
                                         )
 
+        self.backend = None
         self.rampConfig = None
 
         self.dataRoot = "/home/data/charis"
@@ -69,17 +71,54 @@ class HxCmd(object):
         
     @property
     def controller(self):
-        return self.actor.controllers['winjarvis']
+        return self.actor.controllers.get(self.backend, None)
 
     def bounce(self, cmd):
         self.controller.disconnect()
+        
+    def setBackend(self, cmd):
+        """Select the backend to use. 
+
+        Really not sure how to do this. Doing it right is impossible
+        (you might need to steal/hand off the /dev/QUSB device between
+        W7 and Unix. Among other horrors.)
+
+        I think all this should do is:
+          1. declare (via .backend), which backend we want.
+          2. try (once) to (dis/re)-connect  
+        """
+        
+        cmdKeys = cmd.cmd.keywords
+        if 'unix' in cmdKeys:
+            want = 'hxhal'
+        elif 'windows' in cmdKeys:
+            want = 'winjarvis'
+        elif 'none' in cmdKeys:
+            want = None
+
+        runningBackend = self.backend
+        self.backend = None
+
+        if self.controller is not None:
+            cmd.inform('text="disconnecting from backend: %s"' % (runningBackend))
+            try:
+                self.actor.detachController(runningBackend)
+            except Exception as e:
+                cmd.warn("text='failed to disconnect: %s'" % (e))
+
+        worked = self.actor.attachController(want)
+        if worked:
+            self.backend = want
+            cmd.finish()
+        else:
+            cmd.fail()
         
     def winRaw(self, cmd):
         """ Tunnel a rawCmd command to these Windows IDL program. """
         
         cmdKeys = cmd.cmd.keywords
 
-        ctrl = self.actor.controllers['winjarvis']
+        ctrl = self.controller
 
         rawCmd = cmdKeys['raw'].values[0]
         cmd.diag('text="sending raw: %s"' % (rawCmd))
@@ -89,7 +128,7 @@ class HxCmd(object):
     def winGetconfig(self, cmd, doFinish=True):
         """ Fetch the results of these Windows IDL 'getconfiguration' command. """
 
-        ctrl = self.actor.controllers['winjarvis']
+        ctrl = self.controller
 
         ret = ctrl.sendOneCommand('getconfig', cmd=cmd)
         ret = ret.replace('nOutputs', ' nOutputs')
