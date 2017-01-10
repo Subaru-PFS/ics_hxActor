@@ -256,27 +256,34 @@ class HxCmd(object):
         charisModel = self.actor.models['charis'].keyVarDict
         cards = []
 
+        # Was CHARIS.FILTER.NAME
         cards.append(actorFits.makeCardFromKey(cmd, charisModel,
-                                               'filterSlot', 'CHARIS.FILTER.NAME', idx=1,
+                                               'filterSlot', 'Y_FLTNAM', idx=1,
                                                comment='current filter name'))
+        # Was CHARIS.FILTER.SLOT
         cards.append(actorFits.makeCardFromKey(cmd, charisModel,
-                                               'filterSlot', 'CHARIS.FILTER.SLOT', cnv=int, idx=0,
+                                               'filterSlot', 'Y_FLTSLT', cnv=int, idx=0,
                                                comment='current filter slot'))
+        # Was CHARIS.SHUTTER
         cards.append(actorFits.makeCardFromKey(cmd, charisModel,
-                                               'shutter', 'CHARIS.SHUTTER', idx=1,
+                                               'shutter', 'Y_SHUTTR', idx=1,
                                                comment='shutter position'))
+        # Was CHARIS.LASER.ENABLED
         cards.append(actorFits.makeCardFromKey(cmd, charisModel,
-                                               'laserState', 'CHARIS.LASER.ENABLED', cnv=bool, idx=0,
+                                               'laserState', 'Y_LSRENB', cnv=bool, idx=0,
                                                comment='is laserState enabled'))
+        # Was CHARIS.LASER.POWER
         cards.append(actorFits.makeCardFromKey(cmd, charisModel,
-                                               'laserState', 'CHARIS.LASER.POWER', idx=2,
+                                               'laserState', 'Y_LSRPWR', idx=2,
                                                comment='laser power, percent'))
+        # Was CHARIS.LASER.ALARMS
         cards.append(actorFits.makeCardFromKey(cmd, charisModel,
-                                               'laserState', 'CHARIS.LASER.ALARMS', idx=3,
+                                               'laserState', 'Y_LSRALM', idx=3,
                                                comment='laser alarms'))
+        # Was CHARIS.TEMPS.%d
         for i in range(10):
             cards.append(actorFits.makeCardFromKey(cmd, charisModel,
-                                                   'temps', 'CHARIS.TEMPS.%d'%i, idx=i,
+                                                   'temps', 'Y_TEMP%02d'%i, idx=i,
                                                    comment='temperature sensor %d'%i))
             
         return cards
