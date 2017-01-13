@@ -40,11 +40,15 @@ class HxCmd(object):
             ('single', '', self.takeSingle),
             ('cds', '', self.takeCDS),
             ('flush', '', self.flushProgramInput),
-            ('ramp', '[<nramp>] [<nreset>] [<nread>] [<ngroup>] [<ndrop>] [<itime>] [@splitRamps]', self.takeRamp),
+            ('setup', '', self.setup),
+            ('ramp', '[<nramp>] [<nreset>] [<nread>] [<ngroup>] [<ndrop>] [<itime>] [@splitRamps] [<seqno>] [<exptype>]', self.takeRamp),
+            ('reloadLogic', '', self.reloadLogic),
         ]
 
         # Define typed command arguments for the above commands.
         self.keys = keys.KeysDictionary("xcu_play", (1, 1),
+                                        keys.Key("seqno", types.Int(), default=None,
+                                                 help='If set, the assigned sequence number.'),
                                         keys.Key("nramp", types.Int(), default=1,
                                                  help='number of ramps to take.'),
                                         keys.Key("nreset", types.Int(), default=1,
@@ -57,6 +61,8 @@ class HxCmd(object):
                                                  help='number of drops to waste.'),
                                         keys.Key("itime", types.Float(), default=None,
                                                  help='desired integration time'),
+                                        keys.Key("exptype", types.String(), default=None,
+                                                 help='What to put in IMAGETYP.'),
                                         )
 
         self.backend = 'hxhal'
@@ -75,6 +81,18 @@ class HxCmd(object):
 
     def bounce(self, cmd):
         self.controller.disconnect()
+
+    def setup(self, cmd):
+        if self.backend is not 'hxhal' or self.controller is None:
+            cmd.fail('text="No hxhal controller"')
+            return
+
+        ctrlr = self.controller
+        sam = ctrlr.sam
+        sam.updateHxRgConfigParameters('h2rgConfig', 'cold_feb_05')
+        sam.link.WriteAsicReg(0x602c,0x82c3)
+
+        cmd.finish()
         
     def setBackend(self, cmd):
         """Select the backend to use. 
@@ -99,6 +117,11 @@ class HxCmd(object):
         runningBackend = self.backend
         self.backend = None
 
+        self.backend = want
+
+        cmd.finish()
+        return
+    
         if self.controller is not None:
             cmd.inform('text="disconnecting from backend: %s"' % (runningBackend))
             try:
@@ -389,40 +412,57 @@ class HxCmd(object):
         cmd.inform('text="configuring ramp..."')
         cmd.inform('ramp=%d,%d,%d,%d,%d' % (nramp,ngroup,nreset,nread,ndrop))
 
-        self.flushProgramInput(cmd, doFinish=False)
-        
-        ctrlr = self.controller
-        ret = ctrlr.sendOneCommand('setRampParam(%d,%d,%d,%d,%d)' %
-                                   (nreset,nread,ngroup,ndrop,(1 if dosplit else nramp)),
-                                   cmd=cmd)
-        if ret != '0:succeeded':
-            cmd.fail('text="failed to configure for ramp: %s"' % (ret))
-            return
-        
-        self.winGetconfig(cmd, doFinish=False)
+        if self.backend == 'hxhal':
+            t0 = time.time()
+            sam = self.controller.sam
 
-        timeout = self._calcAcquireTimeout(expType='ramp')
-        if not dosplit:
-            timeout *= nramp
-        timeout += 10
+            def readCB(ramp, group, read, filename, image):
+                cmd.inform('hxread=%s,%d,%d,%d' % (filename, ramp, group, read))
+                
+            sam.takeRamp(nResets=nreset, nReads=nread, noReturn=True, nRamps=nramp,
+                         readCallback=readCB)
+        else:    
+            self.flushProgramInput(cmd, doFinish=False)
         
-        t0 = time.time()
-        for r_i in range(nrampCmds):
-            cmd.inform('text="acquireramp command %d of %d"' % (r_i+1, nrampCmds))
-            ctrlr.sendOneCommand('acquireramp',
-                                 cmd=cmd,
-                                 timeout=timeout,
-                                 noResponse=True)
-            self.consumeRamps((1 if dosplit else nramp),
-                              ngroup,nreset,nread,ndrop,
-                              cmd=cmd)
-            ret = ctrlr.getOneResponse(cmd=cmd)
-            if ret != '0:Ramp acquisition succeeded':
-                cmd.fail('text="IDL gave unexpected response at end of ramp: %s"' % (ret))
+            ctrlr = self.controller
+            ret = ctrlr.sendOneCommand('setRampParam(%d,%d,%d,%d,%d)' %
+                                       (nreset,nread,ngroup,ndrop,(1 if dosplit else nramp)),
+                                       cmd=cmd)
+            if ret != '0:succeeded':
+                cmd.fail('text="failed to configure for ramp: %s"' % (ret))
                 return
+        
+            self.winGetconfig(cmd, doFinish=False)
+
+            timeout = self._calcAcquireTimeout(expType='ramp')
+            if not dosplit:
+                timeout *= nramp
+            timeout += 10
+        
+            t0 = time.time()
+            for r_i in range(nrampCmds):
+                cmd.inform('text="acquireramp command %d of %d"' % (r_i+1, nrampCmds))
+                ctrlr.sendOneCommand('acquireramp',
+                                     cmd=cmd,
+                                     timeout=timeout,
+                                     noResponse=True)
+                self.consumeRamps((1 if dosplit else nramp),
+                                  ngroup,nreset,nread,ndrop,
+                                  cmd=cmd)
+                ret = ctrlr.getOneResponse(cmd=cmd)
+                if ret != '0:Ramp acquisition succeeded':
+                    cmd.fail('text="IDL gave unexpected response at end of ramp: %s"' % (ret))
+                    return
                 
         t1 = time.time()
         dt = t1-t0
         cmd.finish('text="%d ramps, elapsed=%0.3f, perRamp=%0.3f, perRead=%0.3f"' %
                    (nramp, dt, dt/nramp, dt/(nramp*(nread+nreset+ndrop))))
             
+
+    def reloadLogic(self, cmd):
+        ctrlr = self.controller
+
+        ctrlr.sam.reloadLogic()
+        cmd.finish()
+        
