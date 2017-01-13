@@ -37,8 +37,6 @@ class HxCmd(object):
             ('win', '@raw', self.winRaw),
             ('bounce', '', self.bounce),
             ('getconfig', '', self.winGetconfig),
-            ('single', '', self.takeSingle),
-            ('cds', '', self.takeCDS),
             ('flush', '', self.flushProgramInput),
             ('setup', '', self.setup),
             ('ramp', '[<nramp>] [<nreset>] [<nread>] [<ngroup>] [<ndrop>] [<itime>] [@splitRamps] [<seqno>] [<exptype>]', self.takeRamp),
@@ -187,23 +185,6 @@ class HxCmd(object):
         else:
             raise RuntimeError("unknown expType %s" % (expType))
         
-    def takeSingle(self, cmd):
-        if self.rampConfig is None:
-            self.winGetconfig(cmd, doFinish=False)
-        ret = self.controller.sendOneCommand('acquireSingleFrame',
-                                             cmd=cmd,
-                                             timeout=self._calcAcquireTimeout(expType='single'))
-        cmd.finish('text="%s"' % (ret))
-
-    def takeCDS(self, cmd):
-        if self.rampConfig is None:
-            self.winGetconfig(cmd, doFinish=False)
-        ret = self.controller.sendOneCommand('acquirecds',
-                                             cmd=cmd,
-                                             timeout=self._calcAcquireTimeout(expType='CDS'))
-        cmd.finish('text="%s"' % (ret))
-
-
     def flushProgramInput(self, cmd, doFinish=True):
         debris = ''
         while True:
