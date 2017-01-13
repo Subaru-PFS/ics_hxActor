@@ -59,7 +59,7 @@ class HxCmd(object):
                                                  help='desired integration time'),
                                         )
 
-        self.backend = None
+        self.backend = 'hxhal'
         self.rampConfig = None
 
         self.dataRoot = "/home/data/charis"
