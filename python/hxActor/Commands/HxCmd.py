@@ -306,7 +306,10 @@ class HxCmd(object):
             hdr.append(c)
             
         return hdr
-            
+
+    def getCharisHeader(self, cmd=None):
+        return self.getHeader(None, self.readTime, cmd=cmd)
+    
     def consumeRamps(self, nramp, ngroup, nreset, nread, ndrop, cmd, timeLimits=None):
         if timeLimits is None:
             timeLimits = (nreset*1.5+15,
@@ -407,8 +410,14 @@ class HxCmd(object):
 
             def readCB(ramp, group, read, filename, image):
                 cmd.inform('hxread=%s,%d,%d,%d' % (filename, ramp, group, read))
-                
+
+            def headerCB():
+                hdr = self.getCharisHeader()
+                return hdr.cards
+            
             sam.takeRamp(nResets=nreset, nReads=nread, noReturn=True, nRamps=nramp,
+                         seqno=seqno, exptype=exptype,
+                         headerCallback=headerCB,
                          readCallback=readCB)
         else:    
             self.flushProgramInput(cmd, doFinish=False)
