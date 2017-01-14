@@ -262,6 +262,10 @@ class HxCmd(object):
         charisModel = self.actor.models['charis'].keyVarDict
         cards = []
 
+        # Was CHARIS.SHUTTER
+        cards.append(actorFits.makeCardFromKey(cmd, charisModel,
+                                               'grism', 'Y_GRISM', idx=0,
+                                               comment='grism position'))
         # Was CHARIS.FILTER.NAME
         cards.append(actorFits.makeCardFromKey(cmd, charisModel,
                                                'filterSlot', 'Y_FLTNAM', idx=1,
