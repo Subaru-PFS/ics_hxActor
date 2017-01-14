@@ -4,11 +4,11 @@ import socket
 
 import astropy.io.fits as pyfits
 
-headerAddr = 'localhost', 6666
+headerAddr = 'rhodey', 6666
 
 def fetchHeader(frameid=9999, mode=1, itime=0.0):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    query = "%d %d %0.2f\n" % (frameid, mode, itime)
+    query = "hdr %s %s %0.2f False\n" % (frameid, mode, itime)
     logging.info("sending query: %s ", query[:-1])
     try:
         # Connect to server and send data
@@ -25,7 +25,7 @@ def fetchHeader(frameid=9999, mode=1, itime=0.0):
         while True:
             # Receive data from the server and shut down
             oneBlock = sock.recv(2880)
-            logging.info("received: ", oneBlock)
+            logging.info("received: %s", oneBlock)
             received = received + oneBlock
 
             if oneBlock.strip().endswith('END'):
@@ -37,7 +37,7 @@ def fetchHeader(frameid=9999, mode=1, itime=0.0):
     finally:
         sock.close()
 
-    logging.info("final received: ", oneBlock)
+    logging.info("final received: %s", len(received) / 80.0)
     hdr = pyfits.Header.fromstring(received)
 
     logging.info("read %d bytes, %0.4f blocks, header len=%d" % (len(received), len(received) / 2880.0, len(hdr)))
