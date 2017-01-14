@@ -39,7 +39,9 @@ class HxCmd(object):
             ('getconfig', '', self.winGetconfig),
             ('flush', '', self.flushProgramInput),
             ('setup', '', self.setup),
-            ('ramp', '[<nramp>] [<nreset>] [<nread>] [<ngroup>] [<ndrop>] [<itime>] [@splitRamps] [<seqno>] [<exptype>]', self.takeRamp),
+            ('ramp',
+             '[<nramp>] [<nreset>] [<nread>] [<ngroup>] [<ndrop>] [<itime>] [@splitRamps] [<seqno>] [<exptype>]',
+             self.takeRamp),
             ('reloadLogic', '', self.reloadLogic),
         ]
 
@@ -373,9 +375,11 @@ class HxCmd(object):
         ndrop = cmdKeys['ndrop'].values[0] if ('ndrop' in cmdKeys) else 0
         ngroup = cmdKeys['ngroup'].values[0] if ('ngroup' in cmdKeys) else 1
         itime = cmdKeys['itime'].values[0] if ('itime' in cmdKeys) else None
+        seqno = cmdKeys['seqno'].values[0] if ('seqno' in cmdKeys) else None
+        exptype = cmdKeys['exptype'].values[0] if ('seqno' in cmdKeys) else None
         
-        cmd.diag('text="ramps=%s resets=%s reads=%s rdrops=%s rgroups=%s itime=%s"' %
-                 (nramp, nreset, nread, ndrop, ngroup, itime))
+        cmd.diag('text="ramps=%s resets=%s reads=%s rdrops=%s rgroups=%s itime=%s seqno=%s exptype=%s"' %
+                 (nramp, nreset, nread, ndrop, ngroup, itime, seqno, exptype))
 
         if itime is not None:
             if 'nread' in cmdKeys:
