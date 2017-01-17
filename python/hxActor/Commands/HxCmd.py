@@ -35,10 +35,13 @@ class HxCmd(object):
         self.vocab = [
             ('backend', '@(windows|unix)', self.setBackend),
             ('win', '@raw', self.winRaw),
+            ('hx', '@raw', self.hxRaw),
             ('bounce', '', self.bounce),
-            ('getconfig', '', self.winGetconfig),
-            ('flush', '', self.flushProgramInput),
-            ('setup', '', self.setup),
+            ('wingetconfig', '', self.winGetconfig),
+            ('winflush', '', self.flushProgramInput),
+            ('hxconfig', '[<configName>]', self.hxconfig),
+            ('charisConfig', '', self.charisConfig),
+            ('setVoltage', '<voltageName> <voltage>', self.setVoltage),
             ('ramp',
              '[<nramp>] [<nreset>] [<nread>] [<ngroup>] [<ndrop>] [<itime>] [@splitRamps] [<seqno>] [<exptype>]',
              self.takeRamp),
@@ -46,7 +49,7 @@ class HxCmd(object):
         ]
 
         # Define typed command arguments for the above commands.
-        self.keys = keys.KeysDictionary("xcu_play", (1, 1),
+        self.keys = keys.KeysDictionary("hx", (1, 2),
                                         keys.Key("seqno", types.Int(), default=None,
                                                  help='If set, the assigned sequence number.'),
                                         keys.Key("nramp", types.Int(), default=1,
