@@ -66,6 +66,12 @@ class HxCmd(object):
                                                  help='desired integration time'),
                                         keys.Key("exptype", types.String(), default=None,
                                                  help='What to put in IMAGETYP.'),
+                                        keys.Key("configName", types.String(), default=None,
+                                                 help='configuration name'),
+                                        keys.Key("voltageName", types.String(), default=None,
+                                                 help='voltage name'),
+                                        keys.Key("voltage", types.Float(), default=None,
+                                                 help='voltage'),
                                         )
 
         self.backend = 'hxhal'
@@ -85,16 +91,60 @@ class HxCmd(object):
     def bounce(self, cmd):
         self.controller.disconnect()
 
+    def hxconfig(self, cmd):
+        """Set the given hxhal configuration. """
+        
+        if self.backend is not 'hxhal' or self.controller is None:
+            cmd.fail('text="No hxhal controller"')
+            return
+
+        cmdKeys = cmd.cmd.keywords
+        configName = cmdKeys['configName'].values[0]
+        
+        ctrlr = self.controller
+        sam = ctrlr.sam
+        
+        sam.updateHxRgConfigParameters('h2rgConfig', configName)
+        cmd.finish()
+        
     def setup(self, cmd):
         if self.backend is not 'hxhal' or self.controller is None:
             cmd.fail('text="No hxhal controller"')
             return
 
+        cmdKeys = cmd.cmd.keywords
         ctrlr = self.controller
         sam = ctrlr.sam
+        
+        cmd.inform('text="setting ASIC configuration...."')
         sam.updateHxRgConfigParameters('h2rgConfig', 'cold_feb_05')
+
+        cmd.inform('text="setting voltages...."')
         sam.link.WriteAsicReg(0x602c,0x82c3)
 
+        cmd.finish()
+        
+    def setVoltage(self, cmd):
+        """Set a songle Hx bias voltage. """
+        
+        if self.backend is not 'hxhal' or self.controller is None:
+            cmd.fail('text="No hxhal controller"')
+            return
+
+        cmdKeys = cmd.cmd.keywords
+        voltageName = cmdKeys['voltageName'].values[0]
+        voltage = cmdKeys['voltage'].values[0]
+        
+        ctrlr = self.controller
+        sam = ctrlr.sam
+
+        try:
+            newVoltage = sam.setBiasVoltage(voltageName, voltage)
+        except Exception as e:
+            cmd.fail('text="Failed to set voltage %s=%s: %s"' % (voltageName,
+                                                                 voltage,
+                                                                 e))
+        
         cmd.finish()
         
     def setBackend(self, cmd):
@@ -150,6 +200,15 @@ class HxCmd(object):
         cmd.diag('text="sending raw: %s"' % (rawCmd))
         ret = ctrl.sendOneCommand(rawCmd, cmd=cmd)
         cmd.finish('text="raw: %s"' % (ret))
+
+    def hxRaw(self, cmd):
+        """ Tunnel a rawCmd command to the HX program. """
+        
+        cmdKeys = cmd.cmd.keywords
+        ctrl = self.controller
+
+        rawCmd = cmdKeys['raw'].values[0]
+        cmd.fail('text="not implemented"')
 
     def winGetconfig(self, cmd, doFinish=True):
         """ Fetch the results of these Windows IDL 'getconfiguration' command. """
@@ -207,7 +266,7 @@ class HxCmd(object):
         if doFinish:
             cmd.finish()
 
-    def consumeRead(self, path, cmd, header=None):
+    def _consumeRead(self, path, cmd, header=None):
         #  /home/data/wincharis/H2RG-C17206-ASIC-104/UpTheRamp/20160712210126/H2RG_R01_M01_N01.fits
         dirName, fileName = os.path.split(path)
         cmd.diag('text="checking %s"' % (fileName))
