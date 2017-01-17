@@ -384,9 +384,9 @@ class HxCmd(object):
         
         return hdr
 
-    def getCharisHeader(self, fullHeader=True, cmd=None):
-        return self.getHeader(None, fullHeader=fullHeader,
-                              self.readTime, cmd=cmd)
+    def getCharisHeader(self, seqno=None, fullHeader=True, cmd=None):
+        return self.getHeader(seqno, 
+                              fullHeader=fullHeader, cmd=cmd)
     
     def getHxHeader(self, cmd=None):
         voltageList = self.controller.getAllBiasVoltages
@@ -464,7 +464,7 @@ class HxCmd(object):
         ngroup = cmdKeys['ngroup'].values[0] if ('ngroup' in cmdKeys) else 1
         itime = cmdKeys['itime'].values[0] if ('itime' in cmdKeys) else None
         seqno = cmdKeys['seqno'].values[0] if ('seqno' in cmdKeys) else None
-        exptype = cmdKeys['exptype'].values[0] if ('seqno' in cmdKeys) else None
+        exptype = cmdKeys['exptype'].values[0] if ('exptype' in cmdKeys) else None
         
         cmd.diag('text="ramps=%s resets=%s reads=%s rdrops=%s rgroups=%s itime=%s seqno=%s exptype=%s"' %
                  (nramp, nreset, nread, ndrop, ngroup, itime, seqno, exptype))
@@ -487,19 +487,21 @@ class HxCmd(object):
 
         if self.backend == 'hxhal':
             t0 = time.time()
-            sam = self.controller.sam
+            sam = self.sam
 
             def readCB(ramp, group, read, filename, image):
                 cmd.inform('hxread=%s,%d,%d,%d' % (filename, ramp, group, read))
+                if nread == read:
+                    cmd.inform('filename=%s' % (filename))
 
-            def headerCB(ramp, group, read):
-                hdr = self.getCharisHeader(fullHeader=(read==1), cmd=cmd)
+            def headerCB(ramp, group, read, seqno):
+                hdr = self.getCharisHeader(seqno=seqno, fullHeader=(read==1), cmd=cmd)
                 return hdr.cards
             
-            sam.takeRamp(nResets=nreset, nReads=nread, noReturn=True, nRamps=nramp,
-                         seqno=seqno, exptype=exptype,
-                         headerCallback=headerCB,
-                         readCallback=readCB)
+            filenames = sam.takeRamp(nResets=nreset, nReads=nread, noReturn=True, nRamps=nramp,
+                                     seqno=seqno, exptype=exptype,
+                                     headerCallback=headerCB,
+                                     readCallback=readCB)
         else:    
             self.flushProgramInput(cmd, doFinish=False)
         

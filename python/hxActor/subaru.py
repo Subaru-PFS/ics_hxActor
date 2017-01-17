@@ -6,11 +6,51 @@ import astropy.io.fits as pyfits
 
 headerAddr = 'rhodey', 6666
 
+def fetchSeqno(prefix='A9', instrument='CRS'):
+    """ Request frame_id from Gen2. """
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    query = "seqno %s\n" % (prefix)
+    logging.info("sending query: %s ", query[:-1])
+    try:
+        # Connect to server and send data
+        sock.connect(headerAddr)
+        sock.sendall(query)
+    except Exception as e:
+        logging.error("failed to send: %s" % (e))
+        received = ""
+        return '%s%s%0*d' % (instrument, prefix, 9-len(prefix), 9999)
+
+    logging.debug("sent query: %s ", query[:-1])
+    try:
+        received = ""
+        while True:
+            # Receive data from the server and shut down
+            oneBlock = sock.recv(1024)
+            logging.debug("received: %s", oneBlock)
+            received = received + oneBlock
+
+            if len(received) >= 12:
+                break
+
+    except Exception as e:
+        logging.error("failed to read: %s" % (e))
+        received = ""
+    finally:
+        sock.close()
+
+    logging.debug("final received: %s", received)
+    return received
+
 def fetchHeader(fullHeader=True, frameid=9999, mode=1, itime=0.0):
     """Request FITS cards from the Gen2 side. """
-    
+
+    try:
+        gen2Frameid = "CRSA%08d" % (frameid)
+    except:
+        gen2Frameid = 'None'
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    query = "hdr %s %s %0.2f %s\n" % (frameid, mode, itime, fullHeader)
+    query = "hdr %s %s %0.2f %s\n" % (gen2Frameid, mode, itime, fullHeader)
     logging.info("sending query: %s ", query[:-1])
     try:
         # Connect to server and send data
@@ -30,7 +70,7 @@ def fetchHeader(fullHeader=True, frameid=9999, mode=1, itime=0.0):
             logging.debug("received: %s", oneBlock)
             received = received + oneBlock
 
-            if oneBlock.strip().endswith('END'):
+            if received.strip().endswith('END'):
                 break
 
     except Exception as e:
@@ -54,17 +94,19 @@ class FetchHeader(multiprocessing.Process):
         self.timeLimit = timeLimit
         self.frameId = frameId
         self.itime = itime
+        self.fullHeader = fullHeader
         if logger is None:
             self.logger = logging.getLogger('fetchHeader')
             self.logger.setLevel(logging.DEBUG)
             
-        self.logger.debug('inited process %s' % (self.name))
+        self.logger.debug('inited process %s (frameId=%s)' % (self.name, frameId))
     
     def run(self):
-        self.logger.info('starting process %s' % (self.name))
+        self.logger.info('starting process %s (%s)' % (self.name, self.frameId))
 
         try:
-            hdrString = fetchHeader(self.frameId, fullHeader=fullHeader, mode=1, itime=self.itime)
+            hdr = fetchHeader(self.fullHeader,self.frameId, mode=1, itime=self.itime)
+            hdrString = hdr.tostring()
         except Exception as e:
             self.logger.warn('fetchHeader failed: %s', e)
             self.q.put(pyfits.Header().tostring())
