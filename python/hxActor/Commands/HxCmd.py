@@ -262,7 +262,6 @@ class HxCmd(object):
         charisModel = self.actor.models['charis'].keyVarDict
         cards = []
 
-        # Was CHARIS.SHUTTER
         cards.append(actorFits.makeCardFromKey(cmd, charisModel,
                                                'grism', 'Y_GRISM', idx=0,
                                                comment='grism position'))
@@ -298,19 +297,30 @@ class HxCmd(object):
             
         return cards
         
-    def getHeader(self, frameId, itime, timeout=1.0, cmd=None):
-        hdr = self.getSubaruHeader(frameId, itime, timeout=timeout, cmd=cmd)
+    def getHeader(self, frameId, itime, fullHeader=True,
+                  timeout=1.0, cmd=None):
+        try:
+            hdr = self.getSubaruHeader(frameId, itime, fullHeader=fullHeader,
+                                       timeout=timeout, cmd=cmd)
+        except Exception as e:
+            self.logger.warn('text="failed to fetch Subaru header: %s"' % (e))
+            cmd.warn('text="failed to fetch Subaru header: %s"' % (e))
+            hdr = pyfits.Header()
+            
         charisCards = self.getCharisCards(cmd)
-
         for c in charisCards:
             hdr.append(c)
-            
+        
         return hdr
 
-    def getCharisHeader(self, cmd=None):
-        return self.getHeader(None, self.readTime, cmd=cmd)
+    def getCharisHeader(self, fullHeader=True, cmd=None):
+        return self.getHeader(None, fullHeader=fullHeader,
+                              self.readTime, cmd=cmd)
     
-    def consumeRamps(self, nramp, ngroup, nreset, nread, ndrop, cmd, timeLimits=None):
+    def getHxHeader(self, cmd=None):
+        voltageList = self.controller.getAllBiasVoltages
+    
+    def _consumeRamps(self, nramp, ngroup, nreset, nread, ndrop, cmd, timeLimits=None):
         if timeLimits is None:
             timeLimits = (nreset*1.5+15,
                           nread*1.5+10)
@@ -347,7 +357,7 @@ class HxCmd(object):
                                                                              rampsDone+1,nramp,
                                                                              path))
                     readsDone += 1
-                    self.consumeRead(path, cmd, header)
+                    self._consumeRead(path, cmd, header)
                     
                 if readsDone >= nread:
                     rampsDone += 1
@@ -411,8 +421,8 @@ class HxCmd(object):
             def readCB(ramp, group, read, filename, image):
                 cmd.inform('hxread=%s,%d,%d,%d' % (filename, ramp, group, read))
 
-            def headerCB():
-                hdr = self.getCharisHeader()
+            def headerCB(ramp, group, read):
+                hdr = self.getCharisHeader(fullHeader=(read==1), cmd=cmd)
                 return hdr.cards
             
             sam.takeRamp(nResets=nreset, nReads=nread, noReturn=True, nRamps=nramp,
@@ -444,7 +454,7 @@ class HxCmd(object):
                                      cmd=cmd,
                                      timeout=timeout,
                                      noResponse=True)
-                self.consumeRamps((1 if dosplit else nramp),
+                self._consumeRamps((1 if dosplit else nramp),
                                   ngroup,nreset,nread,ndrop,
                                   cmd=cmd)
                 ret = ctrlr.getOneResponse(cmd=cmd)
