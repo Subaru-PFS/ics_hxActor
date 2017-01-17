@@ -358,13 +358,20 @@ class HxCmd(object):
             cards.append(actorFits.makeCardFromKey(cmd, charisModel,
                                                    'temps', 'Y_TEMP%02d'%i, idx=i,
                                                    comment='temperature sensor %d'%i))
-            
+
+        # Add global Subaru aliases
+        cards.append(actorFits.makeCardFromKey(cmd, charisModel,
+                                               'filterSlot', 'FILTER01', idx=1,
+                                               comment='current filter name'))
+        cards.append(actorFits.makeCardFromKey(cmd, charisModel,
+                                               'grism', 'DISPERSR', idx=0,
+                                               comment='prism position'))
         return cards
         
-    def getHeader(self, frameId, itime, fullHeader=True,
+    def getHeader(self, frameId, fullHeader=True,
                   timeout=1.0, cmd=None):
         try:
-            hdr = self.getSubaruHeader(frameId, itime, fullHeader=fullHeader,
+            hdr = self.getSubaruHeader(frameId, fullHeader=fullHeader,
                                        timeout=timeout, cmd=cmd)
         except Exception as e:
             self.logger.warn('text="failed to fetch Subaru header: %s"' % (e))
