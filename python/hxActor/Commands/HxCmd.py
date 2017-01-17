@@ -298,28 +298,31 @@ class HxCmd(object):
         stackFile.close()
         cmd.inform('readN=%d,%d,%d,%s' % (rampN,groupN,readN,self.outfile))
 
-    def getSubaruHeader(self, frameId, itime, timeout=1.0, cmd=None):
-    
-        headerTask = subaru.FetchHeader(frameId=frameId, itime=itime)
-        self.logger.debug('text="starting header task timeout=%s"' % (timeout))
+    def getSubaruHeader(self, frameId, timeout=1.0, fullHeader=True, cmd=None):
+
+        itime = self.sam.frameTime
+        headerTask = subaru.FetchHeader(fullHeader=True, frameId=frameId, itime=itime)
+        self.logger.debug('text="starting header task timeout=%s frameId=%s"' % (timeout, frameId))
         headerTask.start()
         headerQ = headerTask.q
         self.logger.info('text="header q: %s"' % (headerQ))
         
         try:
-            hdr = headerQ.get(True, timeout)
-            if hdr is None:
-                self.logger.debug('text=".get header: %s"' % (hdr))
+            hdrString = headerQ.get(True, timeout)
+            if hdrString is None:
+                self.logger.debug('text=".get header: %s"' % (hdrString))
             else:
-                self.logger.debug('text=".get header: %s"' % (len(hdr)))
+                self.logger.debug('text=".get header: %s"' % (len(hdrString)))
         except Exception as e:
             self.logger.warn('text="failed to .getHeader header: %s"' % (e))
             cmd.warn('text="failed to .getHeader header: %s"' % (e))
-            hdr = None
+            hdrString = ''
         finally:
             headerTask.terminate()
             time.sleep(0.1)
-            
+
+        hdr = pyfits.Header.fromstring(hdrString)
+        
         return hdr
 
     def getCharisCards(self, cmd):
