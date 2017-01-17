@@ -21,7 +21,6 @@ reload(subaru)
 class HxCmd(object):
 
     def __init__(self, actor):
-        self.readTime = 1.47528
         
         # This lets us access the rest of the actor.
         self.actor = actor
@@ -88,6 +87,11 @@ class HxCmd(object):
     def controller(self):
         return self.actor.controllers.get(self.backend, None)
 
+    @property
+    def sam(self):
+        ctrlr = self.actor.controllers.get(self.backend, None)
+        return ctrlr.sam
+
     def bounce(self, cmd):
         self.controller.disconnect()
 
@@ -101,20 +105,18 @@ class HxCmd(object):
         cmdKeys = cmd.cmd.keywords
         configName = cmdKeys['configName'].values[0]
         
-        ctrlr = self.controller
-        sam = ctrlr.sam
+        sam = self.sam
         
         sam.updateHxRgConfigParameters('h2rgConfig', configName)
         cmd.finish()
         
-    def setup(self, cmd):
+    def charisConfig(self, cmd):
         if self.backend is not 'hxhal' or self.controller is None:
             cmd.fail('text="No hxhal controller"')
             return
 
         cmdKeys = cmd.cmd.keywords
-        ctrlr = self.controller
-        sam = ctrlr.sam
+        sam = self.sam
         
         cmd.inform('text="setting ASIC configuration...."')
         sam.updateHxRgConfigParameters('h2rgConfig', 'cold_feb_05')
@@ -135,8 +137,7 @@ class HxCmd(object):
         voltageName = cmdKeys['voltageName'].values[0]
         voltage = cmdKeys['voltage'].values[0]
         
-        ctrlr = self.controller
-        sam = ctrlr.sam
+        sam = self.sam
 
         try:
             newVoltage = sam.setBiasVoltage(voltageName, voltage)
@@ -237,15 +238,16 @@ class HxCmd(object):
     
     def _calcAcquireTimeout(self, expType='ramp', cmd=None):
         """ Return the best estimate of the actual expected time for our current rampConfig. """
-        
+
+        frameTime = self.sam.frameTime
         if expType == 'ramp':
-            return self.readTime * (self.rampConfig['nread'] +
-                                    self.rampConfig['nreset'] +
-                                    self.rampConfig['ndrop'])
+            return frameTime * (self.rampConfig['nread'] +
+                                self.rampConfig['nreset'] +
+                                self.rampConfig['ndrop'])
         elif expType == 'single':
-            return self.readTime * (1 + self.rampConfig['nreset'])
+            return frameTime * (1 + self.rampConfig['nreset'])
         elif expType == 'CDS':
-            return self.readTime * (2 + self.rampConfig['nreset'])
+            return frameTime * (2 + self.rampConfig['nreset'])
         else:
             raise RuntimeError("unknown expType %s" % (expType))
         
@@ -464,7 +466,7 @@ class HxCmd(object):
             if 'nread' in cmdKeys:
                 cmd.fail('text="cannot specify both nread= and itime="')
                 return
-            nread = int(itime / self.readTime) + 1
+            nread = int(itime / self.sam.frameTime) + 1
         
         dosplit = 'splitRamps' in cmdKeys
         nrampCmds = nramp if dosplit else 1
@@ -531,8 +533,6 @@ class HxCmd(object):
             
 
     def reloadLogic(self, cmd):
-        ctrlr = self.controller
-
-        ctrlr.sam.reloadLogic()
+        self.sam.reloadLogic()
         cmd.finish()
         
