@@ -337,7 +337,10 @@ class HxCmd(object):
 
         cards.append(actorFits.makeCardFromKey(cmd, charisModel,
                                                'grism', 'Y_GRISM', idx=0,
-                                               comment='grism position'))
+                                               comment='deprecated: grism position'))
+        cards.append(actorFits.makeCardFromKey(cmd, charisModel,
+                                               'grism', 'Y_PRISM', idx=0,
+                                               comment='prism position'))
         # Was CHARIS.FILTER.NAME
         cards.append(actorFits.makeCardFromKey(cmd, charisModel,
                                                'filterSlot', 'Y_FLTNAM', idx=1,
