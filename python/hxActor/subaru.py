@@ -42,7 +42,7 @@ def fetchSeqno(prefix='A', instrument='CRS'):
     logging.debug("final received: %s", received)
     return received
 
-def fetchHeader(fullHeader=True, frameid=9999, mode=1, itime=0.0):
+def fetchHeader(fullHeader=True, frameid=9999, exptype='TEST', itime=0.0):
     """Request FITS cards from the Gen2 side. """
 
     try:
@@ -50,7 +50,7 @@ def fetchHeader(fullHeader=True, frameid=9999, mode=1, itime=0.0):
     except:
         gen2Frameid = 'None'
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    query = "hdr %s %s %0.2f %s\n" % (gen2Frameid, mode, itime, fullHeader)
+    query = "hdr %s %s %0.2f %s\n" % (gen2Frameid, exptype, itime, fullHeader)
     logging.info("sending query: %s ", query[:-1])
     try:
         # Connect to server and send data
@@ -91,13 +91,14 @@ def fetchHeader(fullHeader=True, frameid=9999, mode=1, itime=0.0):
     return hdr
 
 class FetchHeader(multiprocessing.Process):
-    def __init__(self, logger=None, fullHeader=True, timeLimit=15, frameId=9999, itime=0.0):
+    def __init__(self, logger=None, fullHeader=True, timeLimit=15, frameId=9999, itime=0.0, exptype='TEST'):
         super(FetchHeader, self).__init__(name="FetchHeader")
         self.daemon = True
         self.q = multiprocessing.Queue()
         self.timeLimit = timeLimit
         self.frameId = frameId
         self.itime = itime
+        self.exptype = exptype
         self.fullHeader = fullHeader
         if logger is None:
             self.logger = logging.getLogger('fetchHeader')
@@ -109,7 +110,7 @@ class FetchHeader(multiprocessing.Process):
         self.logger.info('starting process %s (%s)' % (self.name, self.frameId))
 
         try:
-            hdr = fetchHeader(self.fullHeader,self.frameId, mode=1, itime=self.itime)
+            hdr = fetchHeader(self.fullHeader,self.frameId, exptype=self.exptype, itime=self.itime)
             hdrString = hdr.tostring()
         except Exception as e:
             self.logger.warn('fetchHeader failed: %s', e)
