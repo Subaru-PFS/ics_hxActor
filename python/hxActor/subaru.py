@@ -66,10 +66,14 @@ def fetchHeader(fullHeader=True, frameid=9999, mode=1, itime=0.0):
         received = ""
         while True:
             # Receive data from the server and shut down
-            oneBlock = sock.recv(2880)
-            logging.debug("received: %s", oneBlock)
-            received = received + oneBlock
-
+            try:
+                oneBlock = sock.recv(2880)
+                logging.debug("received: %s", oneBlock)
+                received = received + oneBlock
+            except socket.error, e:
+                if e.errno != errno.EINTR:
+                    raise
+    
             if received.strip().endswith('END'):
                 break
 
