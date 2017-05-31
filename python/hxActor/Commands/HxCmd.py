@@ -45,7 +45,7 @@ class HxCmd(object):
             ('charisConfig', '', self.charisConfig),
             ('setVoltage', '<voltageName> <voltage>', self.setVoltage),
             ('ramp',
-             '[<nramp>] [<nreset>] [<nread>] [<ngroup>] [<ndrop>] [<itime>] [@splitRamps] [<seqno>] [<exptype>]',
+             '[<nramp>] [<nreset>] [<nread>] [<ngroup>] [<ndrop>] [<itime>] [@splitRamps] [<seqno>] [<exptype>] [<objname>]',
              self.takeRamp),
             ('reloadLogic', '', self.reloadLogic),
         ]
@@ -67,7 +67,9 @@ class HxCmd(object):
                                         keys.Key("itime", types.Float(), default=None,
                                                  help='desired integration time'),
                                         keys.Key("exptype", types.String(), default=None,
-                                                 help='What to put in IMAGETYP.'),
+                                                 help='What to put in IMAGETYP/DATA-TYP.'),
+                                        keys.Key("objname", types.String(), default=None,
+                                                 help='What to put in OBJECT.'),
                                         keys.Key("configName", types.String(), default=None,
                                                  help='configuration name'),
                                         keys.Key("voltageName", types.String(), default=None,
@@ -301,10 +303,11 @@ class HxCmd(object):
         stackFile.close()
         cmd.inform('readN=%d,%d,%d,%s' % (rampN,groupN,readN,self.outfile))
 
-    def getSubaruHeader(self, frameId, timeout=1.0, fullHeader=True, cmd=None):
+    def getSubaruHeader(self, frameId, timeout=1.0,
+                        fullHeader=True, exptype='TEST', cmd=None):
 
         itime = self.sam.frameTime
-        headerTask = subaru.FetchHeader(fullHeader=True, frameId=frameId, itime=itime)
+        headerTask = subaru.FetchHeader(fullHeader=True, frameId=frameId, itime=itime, exptype=exptype)
         self.logger.debug('text="starting header task timeout=%s frameId=%s"' % (timeout, frameId))
         headerTask.start()
         headerQ = headerTask.q
@@ -375,27 +378,50 @@ class HxCmd(object):
         return cards
         
     def getHeader(self, frameId, fullHeader=True,
+                  exptype='TEST', objname='TEST',
                   timeout=1.0, cmd=None):
         try:
             hdr = self.getSubaruHeader(frameId, fullHeader=fullHeader,
+                                       exptype=exptype,
                                        timeout=timeout, cmd=cmd)
         except Exception as e:
             self.logger.warn('text="failed to fetch Subaru header: %s"' % (e))
             cmd.warn('text="failed to fetch Subaru header: %s"' % (e))
             hdr = pyfits.Header()
-            
+
+        hdr.set('OBJECT', objname, before=1)
+        hxCards = self.getHxCards(cmd)
+        for c in hxCards:
+            hdr.append(c)
+        
+        scexaoCards = self.getSCExAOCards(cmd)
+        for c in scexaoCards:
+            hdr.append(c)
+        
         charisCards = self.getCharisCards(cmd)
         for c in charisCards:
             hdr.append(c)
         
         return hdr
 
-    def getCharisHeader(self, seqno=None, fullHeader=True, cmd=None):
-        return self.getHeader(seqno, 
+    def getCharisHeader(self, seqno=None,
+                        exptype='TEST',
+                        fullHeader=True, cmd=None):
+        return self.getHeader(seqno, exptype=exptype,
                               fullHeader=fullHeader, cmd=cmd)
     
-    def getHxHeader(self, cmd=None):
-        voltageList = self.controller.getAllBiasVoltages
+    def getHxCards(self, cmd=None):
+        # voltageList = self.controller.getAllBiasVoltages
+        return []
+    
+    def getSCExAOCards(self, cmd=None):
+        hdr = []
+        try:
+            hdr = scexao.fetchHeader()
+        except:
+            pass
+
+        return hdr
     
     def _consumeRamps(self, nramp, ngroup, nreset, nread, ndrop, cmd, timeLimits=None):
         if timeLimits is None:
@@ -470,7 +496,8 @@ class HxCmd(object):
         ngroup = cmdKeys['ngroup'].values[0] if ('ngroup' in cmdKeys) else 1
         itime = cmdKeys['itime'].values[0] if ('itime' in cmdKeys) else None
         seqno = cmdKeys['seqno'].values[0] if ('seqno' in cmdKeys) else None
-        exptype = cmdKeys['exptype'].values[0] if ('exptype' in cmdKeys) else None
+        exptype = cmdKeys['exptype'].values[0] if ('exptype' in cmdKeys) else 'TEST'
+        objname = cmdKeys['objname'].values[0] if ('objname' in cmdKeys) else 'TEST'
         
         cmd.diag('text="ramps=%s resets=%s reads=%s rdrops=%s rgroups=%s itime=%s seqno=%s exptype=%s"' %
                  (nramp, nreset, nread, ndrop, ngroup, itime, seqno, exptype))
@@ -501,7 +528,9 @@ class HxCmd(object):
                     cmd.inform('filename=%s' % (filename))
 
             def headerCB(ramp, group, read, seqno):
-                hdr = self.getCharisHeader(seqno=seqno, fullHeader=(read==1), cmd=cmd)
+                hdr = self.getHeader(seqno, fullHeader=(read==1),
+                                     exptype=exptype, objname=objname,
+                                     cmd=cmd)
                 return hdr.cards
             
             filenames = sam.takeRamp(nResets=nreset, nReads=nread, noReturn=True, nRamps=nramp,
