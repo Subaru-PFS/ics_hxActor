@@ -6,7 +6,7 @@ import astropy.io.fits as pyfits
 
 headerAddr = 'rhodey', 6666
 
-def fetchSeqno(prefix='A9', instrument='CRS'):
+def fetchSeqno(prefix='A', instrument='CRS'):
     """ Request frame_id from Gen2. """
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
