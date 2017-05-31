@@ -18,6 +18,9 @@ reload(hxActor.winFiles)
 import hxActor.subaru as subaru
 reload(subaru)
 
+import hxActor.scexao as scexao
+reload(scexao)
+
 class HxCmd(object):
 
     def __init__(self, actor):
