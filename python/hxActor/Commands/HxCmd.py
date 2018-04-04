@@ -15,8 +15,8 @@ import actorcore.utility.fits as actorFits
 import hxActor.winFiles
 reload(hxActor.winFiles)
 
-import hxActor.subaru as subaru
-reload(subaru)
+#import hxActor.subaru as subaru
+#reload(subaru)
 
 import hxActor.scexao as scexao
 reload(scexao)
@@ -82,8 +82,8 @@ class HxCmd(object):
         self.backend = 'hxhal'
         self.rampConfig = None
 
-        self.dataRoot = "/home/data/charis"
-        self.dataPrefix = "CRSA"
+        self.dataRoot = "/home/data/pfsx"
+        self.dataPrefix = "PFJA"
         
         from hxActor import seqPath
         self.fileGenerator = seqPath.NightFilenameGen(self.dataRoot,
@@ -501,6 +501,9 @@ class HxCmd(object):
         cmd.finish()
     
     def takeRamp(self, cmd):
+        """Main exposure entry point. 
+        """
+        
         cmdKeys = cmd.cmd.keywords
 
         nramp = cmdKeys['nramp'].values[0] if ('nramp' in cmdKeys) else 1
@@ -541,15 +544,16 @@ class HxCmd(object):
                 if nread == read:
                     cmd.inform('filename=%s' % (filename))
 
-            def headerCB(ramp, group, read, seqno):
-                hdr = self.getHeader(seqno, fullHeader=(read==1),
-                                     exptype=exptype, objname=objname,
-                                     cmd=cmd)
+            def charisHeaderCB(ramp, group, read, seqno):
+                hdr = self.getCharisHeader(seqno=seqno, fullHeader=(read==1), cmd=cmd)
                 return hdr.cards
+
+            def pfsHeaderCB(ramp, group, read, seqno):
+                return []
             
             filenames = sam.takeRamp(nResets=nreset, nReads=nread, noReturn=True, nRamps=nramp,
                                      seqno=seqno, exptype=exptype,
-                                     headerCallback=headerCB,
+                                     headerCallback=pfsHeaderCB,
                                      readCallback=readCB)
         else:    
             self.flushProgramInput(cmd, doFinish=False)
