@@ -1,3 +1,4 @@
+import errno
 import logging
 import multiprocessing
 import socket
