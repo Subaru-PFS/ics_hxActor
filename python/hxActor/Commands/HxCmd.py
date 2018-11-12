@@ -43,6 +43,7 @@ class HxCmd(object):
             ('winflush', '', self.flushProgramInput),
             ('hxconfig', '[<configName>]', self.hxconfig),
             ('charisConfig', '', self.charisConfig),
+            ('getVoltages', '', self.getVoltages),
             ('setVoltage', '<voltageName> <voltage>', self.setVoltage),
             ('ramp',
              '[<nramp>] [<nreset>] [<nread>] [<ngroup>] [<ndrop>] [<itime>] [@splitRamps] [<seqno>] [<exptype>] [<objname>]',
@@ -307,6 +308,9 @@ class HxCmd(object):
                         fullHeader=True, exptype='TEST', cmd=None):
 
         itime = self.sam.frameTime
+        if exptype.lower() == 'nohdr':
+            return pyfits.Header()
+        
         headerTask = subaru.FetchHeader(fullHeader=True, frameId=frameId, itime=itime, exptype=exptype)
         self.logger.debug('text="starting header task timeout=%s frameId=%s"' % (timeout, frameId))
         headerTask.start()
@@ -488,7 +492,14 @@ class HxCmd(object):
             del fileAlerts
             
         self.outfile = None
-        
+
+    def getVoltages(self, cmd):
+        ret = self.sam.getAllBiasVoltages()
+        for nv in ret:
+            name, voltage = nv
+            cmd.inform('%s=%0.3f' % (name, voltage))
+        cmd.finish()
+    
     def takeRamp(self, cmd):
         cmdKeys = cmd.cmd.keywords
 
