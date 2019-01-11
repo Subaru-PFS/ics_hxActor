@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 
+from __future__ import print_function
+from builtins import range
+from builtins import object
+
 import os.path
 import re
 import time
@@ -11,12 +15,15 @@ import opscore.protocols.keys as keys
 import opscore.protocols.types as types
 import actorcore.utility.fits as actorFits
 
-import hxActor.charis.winFiles as winFiles
-import hxActor.charis.subaru as subaru
-import hxActor.charis.scexao as scexao
-reload(winFiles)
-reload(subaru)
-reload(scexao)
+try:
+    import hxActor.charis.winFiles as winFiles
+    import hxActor.charis.subaru as subaru
+    import hxActor.charis.scexao as scexao
+    reload(winFiles)
+    reload(subaru)
+    reload(scexao)
+except:
+    pass
 
 class CharisCmd(object):
 
@@ -27,8 +34,9 @@ class CharisCmd(object):
         self.logger = self.actor.logger
 
         if self.actor.instrument != 'CHARIS':
+            self.logger.info('not CHARIS, skipping CharisCmd.py')
             self.vocab = []
-            self.keys = keys.KeyDictionary('charis', (1, 1))
+            self.keys = keys.KeysDictionary('charis', (1, 1))
             return
         
         # Declare the commands we implement. When the actor is started
@@ -78,7 +86,7 @@ class CharisCmd(object):
         self.dataRoot = "/home/data/charis"
         self.dataPrefix = "CRSA"
         
-        from hxActor import seqPath
+        from hxActor.charis import seqPath
         self.fileGenerator = seqPath.NightFilenameGen(self.dataRoot,
                                                       filePrefix=self.dataPrefix)
         
@@ -412,7 +420,7 @@ class CharisCmd(object):
             try:
                 header = self.getHeader(self.fileGenerator.seqno, nread*self.readTime, cmd=cmd)
                 cmd.debug('text="header process returned %s"' % (None if header is None else len(header)))
-            except Exception, e:
+            except Exception as e:
                 cmd.warn('text="failed to start header process: %s"' % (e))
                 header = None
             
@@ -442,7 +450,7 @@ class CharisCmd(object):
                         cmd.diag('text="new filename %s"' % (self.outfile))
                         try:
                             header = self.getHeader(self.fileGenerator.seqno, nread*self.readTime, cmd=cmd)
-                        except Exception, e:
+                        except Exception as e:
                             cmd.warn('text="failed to start header process: %s"' % (e))
                             header = None
                         

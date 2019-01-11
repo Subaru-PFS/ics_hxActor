@@ -1,3 +1,5 @@
+from __future__ import division
+from past.utils import old_div
 import errno
 import logging
 import multiprocessing
@@ -71,7 +73,7 @@ def fetchHeader(fullHeader=True, frameid=9999, exptype='TEST', itime=0.0):
                 oneBlock = sock.recv(2880)
                 logging.debug("received: %s", oneBlock)
                 received = received + oneBlock
-            except socket.error, e:
+            except socket.error as e:
                 if e.errno != errno.EINTR:
                     raise
     
@@ -84,10 +86,10 @@ def fetchHeader(fullHeader=True, frameid=9999, exptype='TEST', itime=0.0):
     finally:
         sock.close()
 
-    logging.debug("final received: %s", len(received) / 80.0)
+    logging.debug("final received: %s", old_div(len(received), 80.0))
     hdr = pyfits.Header.fromstring(received)
 
-    logging.info("read %d bytes, %0.4f blocks, header len=%d" % (len(received), len(received) / 2880.0, len(hdr)))
+    logging.info("read %d bytes, %0.4f blocks, header len=%d" % (len(received), old_div(len(received), 2880.0), len(hdr)))
 
     return hdr
 
