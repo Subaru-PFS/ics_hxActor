@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import os.path
 import time
 
 import fitsio
@@ -66,11 +67,22 @@ class HxCmd(object):
         self.backend = 'hxhal'
         self.rampConfig = None
 
-        self.dataRoot = "/home/data/pfsx"
-        self.dataPrefix = "PFJA"
-        
-        from hxActor import seqPath
+        if self.actor.instrument == "CHARIS":
+            self.dataRoot = "/home/data/charis"
+            self.dataPrefix = "CRSA"
+            filenameFunc = None
+        else:
+            self.dataRoot = "/data/pfsx"
+            self.dataPrefix = "PFJA"
+
+            def filenameFunc(dataRoot, seqno):
+                # Write the full ramp
+                fileName = self.actor.spectroIds.makeFitsName(visit=seqno, fileType='B')
+                return os.path.join(dataRoot, fileName),
+            
+        from hxActor.charis import seqPath
         self.fileGenerator = seqPath.NightFilenameGen(self.dataRoot,
+                                                      namesFunc = filenameFunc,
                                                       filePrefix=self.dataPrefix)
         
     @property
@@ -96,8 +108,13 @@ class HxCmd(object):
         configName = cmdKeys['configName'].values[0]
         
         sam = self.sam
-        
-        sam.updateHxRgConfigParameters('h2rgConfig', configName)
+
+        try:
+            configGroup, configName = configName.split('.')
+        except:
+            configGroup = 'h4rgConfig' if self.actor.instrument == 'PFS' else 'h2rgConfig'
+            
+        sam.updateHxRgConfigParameters(configGroup, configName)
         cmd.finish()
         
     def setVoltage(self, cmd):
@@ -270,7 +287,8 @@ class HxCmd(object):
         if self.backend == 'hxhal':
             t0 = time.time()
             sam = self.sam
-
+            sam.fileGenerator = self.fileGenerator
+            
             def readCB(ramp, group, read, filename, image):
                 cmd.inform('hxread=%s,%d,%d,%d' % (filename, ramp, group, read))
                 if nread == read:
