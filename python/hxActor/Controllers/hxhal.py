@@ -1,4 +1,5 @@
 from __future__ import print_function, absolute_import, division
+from past.builtins import reload
 
 import logging
 
@@ -17,7 +18,7 @@ class hxhal(object):
 
         self.sam = None
 
-    def start(self):
+    def start(self, cmd=None):
         link = self.actor.config.get('hxhal', 'link')
         samId = int(self.actor.config.get('hxhal', 'samId'))
         self.logger.info('connecting to link:%s samId=%s', link, samId)

@@ -1,3 +1,4 @@
+from __future__ import print_function
 import logging
 import multiprocessing
 import os
@@ -111,7 +112,7 @@ def main():
     f.start()
     while True:
         ev = f.q.get()
-        print ev
+        print(ev)
     
 if __name__ == "__main__":
     main()

@@ -20,7 +20,7 @@ def fetchHeader():
             try:
                 oneBlock = sock.recv(1024)
                 received = received + oneBlock
-            except socket.error, e:
+            except socket.error as e:
                 if e.errno != errno.EINTR:
                     raise
             if oneBlock == '':

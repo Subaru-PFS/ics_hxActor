@@ -1,3 +1,4 @@
+from builtins import object
 import os.path
 import threading
 import time
@@ -5,7 +6,7 @@ import time
 class NightFilenameGen(object):
     def __init__(self, rootDir='.',
                  seqnoFile='nextSeqno', 
-                 genFilesFunc=None,
+                 namesFunc=None,
                  filePrefix='TEST', fileSuffix="fits",
                  filePattern="%(filePrefix)s%(seqno)08d.%(fileSuffix)s",
                  dayOffset=-3600*12):
@@ -40,7 +41,7 @@ class NightFilenameGen(object):
         self.filePrefix = filePrefix
         self.filePattern = filePattern
         self.fileSuffix = fileSuffix
-        self.namesFunc = self.defaultNamesFunc
+        self.namesFunc = namesFunc if namesFunc is not None else self.defaultNamesFunc
 
         self.simRoot = None
         self.simSeqno = None
@@ -79,7 +80,7 @@ class NightFilenameGen(object):
         filename = os.path.join(rootDir, self.filePattern % d)
         return (filename,)
                                 
-    def consumeNextSeqno(self):
+    def consumeNextSeqno(self, seqno=None):
         """ Return the next free sequence number. """
 
         with self.seqnoFileLock:
@@ -87,18 +88,25 @@ class NightFilenameGen(object):
                 sf = open(self.seqnoFile, "r")
                 seq = sf.readline()
                 seq = seq.strip()
-                seqno = int(seq)
-            except Exception, e:
+                fileSeqno = int(seq)
+            except Exception as e:
                 raise RuntimeError("could not read sequence integer from %s: %s" %
                                    (self.seqnoFile, e))
 
+            # If seqno is passed in, it is the seqno we want.
+            # The file contains the _last_ seqno
+            if seqno is None:
+                seqno = fileSeqno
+            else:
+                seqno -= 1
+                
             nextSeqno = seqno+1
             try:
                 sf = open(self.seqnoFile, "w")
                 sf.write("%d\n" % (nextSeqno))
                 sf.truncate()
                 sf.close()
-            except Exception, e:
+            except Exception as e:
                 raise RuntimeError("could not WRITE sequence integer to %s: %s" %
                                    (self.seqnoFile, e))
 
@@ -118,11 +126,11 @@ class NightFilenameGen(object):
 
         return dataDir
     
-    def genNextRealPath(self):
+    def genNextRealPath(self, seqno=None):
         """ Return the next filename to create. """
 
         dataDir = self.dirname()
-        seqno = self.consumeNextSeqno()
+        seqno = self.consumeNextSeqno(seqno=seqno)
         imgFiles = self.namesFunc(dataDir, seqno)
         
         return imgFiles
@@ -135,11 +143,11 @@ class NightFilenameGen(object):
     
         return filenames if os.path.isfile(filenames[0]) else None
 
-    def getNextFileset(self):
+    def getNextFileset(self, seqno=None):
         if self.simRoot:
             return self.genNextSimPath()
         else:
-            return self.genNextRealPath()
+            return self.genNextRealPath(seqno=seqno)
 
 def test1():
     # def __init__(self, rootDir, seqnoFile, filePrefix='test', namesFunc=None):
