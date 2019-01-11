@@ -18,6 +18,9 @@ class OurActor(actorcore.ICC.ICC):
                                    modelNames=modelNames)
 
         self.everConnected = False
+
+        # Figure out how to distinguish these...
+        self.instrument = 'PFS' # 'CHARIS'
         
     def connectionMade(self):
         if self.everConnected is False:
