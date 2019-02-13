@@ -35,8 +35,9 @@ class OurActor(actorcore.ICC.ICC):
             
         # This sets up the connections to/from the hub, the logger, and the twisted reactor.
         #
+        print(f'configuring for {name}, with models={modelNames}, instrument={instrument}')
         actorcore.ICC.ICC.__init__(self, name, 
-                                   productName=productName, 
+                                   productName=productName,
                                    modelNames=modelNames)
 
         self.everConnected = False
