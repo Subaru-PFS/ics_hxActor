@@ -29,6 +29,13 @@ class HxCmd(object):
             ('bounce', '', self.bounce),
             ('hxconfig', '[<configName>]', self.hxconfig),
             ('getVoltages', '', self.getVoltages),
+            ('getSpiRegisters', '', self.getSpiRegisters),
+            ('getTelemetry', '', self.getTelemetry),
+            ('getAsicPower', '', self.getAsicPower),
+            ('getAsicErrors', '', self.getAsicErrors),
+            ('resetAsic', '', self.resetAsic),
+            ('powerOffAsic', '', self.powerOffAsic),
+            ('powerOnAsic', '', self.powerOnAsic),
             ('setVoltage', '<voltageName> <voltage>', self.setVoltage),
             ('ramp',
              '[<nramp>] [<nreset>] [<nread>] [<ngroup>] [<ndrop>] [<itime>] [@splitRamps] [<seqno>] [<exptype>] [<objname>]',
@@ -243,11 +250,63 @@ class HxCmd(object):
         return []
     
     def getVoltages(self, cmd):
-        ret = self.sam.getAllBiasVoltages()
+        ret = self.sam.getBiasVoltages()
         for nv in ret:
             name, voltage = nv
             cmd.inform('%s=%0.3f' % (name, voltage))
         cmd.finish()
+    
+    def getSpiRegisters(self, cmd):
+        h4Regs = self.sam.readAllH4SpiRegs()
+        for i, reg in enumerate(h4Regs):
+            cmd.inform(f'spiReg%d=0x%04x' % (i, reg))
+        cmd.finish()
+    
+    def resetAsic(self, cmd):
+        self.sam.resetAsic()
+        self.getAsicErrors(cmd)
+    
+    def powerOffAsic(self, cmd):
+        self.sam.powerDownAsic()
+        self.getAsicErrors(cmd)
+    
+    def powerOnAsic(self, cmd):
+        self.sam.initAsics()
+        self.getAsicErrors(cmd)
+
+    def writeSpiRegister(self, cmd):
+        pass
+    
+    def getAsicErrors(self, cmd):
+        errorMask = self.sam.getAsicErrors()
+        cmd.inform(f'asicErrors=0x%08x' % (errorMask))
+        cmd.finish()
+    
+    def getTelemetry(self, cmd):
+        volts, amps = self.sam.telemetry()
+        cmd.finish('text="see log for telemetry"')
+    
+    def getAsicPower(self, cmd):
+        V,A,W = self.sam.readAsicPower()
+
+        colLabels = ['Measurement', 'Voltage(V)', 'Current(mA)', 'Power(mW)']
+        rowLabels = ['VDDA', 'Vref', 'VDD3p3', 'VDD', 'VDDIO']
+
+        nBanks = 4
+        nChan = 5
+        for bank_i in range(nBanks):
+            if bank_i > 0:
+                cmd.inform('text=""')
+            bankPower = 0.0
+            for row_i in range(nChan):
+                meas_i = bank_i + row_i*nBanks
+                cmd.inform('text="bank %d  %-6s %+4.2fV %+5.3fA %0.3fW"' % (bank_i, rowLabels[row_i],
+                                                                            V[meas_i], A[meas_i]/1000.0,
+                                                                            W[meas_i]/1000.0))
+                bankPower += W[meas_i]
+            cmd.inform('text="bank %d total: %0.3fW"' % (bank_i, bankPower/1000.0))
+        
+        cmd.finish('text="see log for telemetry"')
     
     def takeRamp(self, cmd):
         """Main exposure entry point. 
