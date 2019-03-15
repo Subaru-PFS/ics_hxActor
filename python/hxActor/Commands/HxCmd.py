@@ -361,16 +361,15 @@ class HxCmd(object):
                     hdr = self.getCharisHeader(seqno=seqno, fullHeader=(read == 1), cmd=cmd)
                     return hdr.cards
                 elif self.actor.instrument == 'PFS':
-                    return []
+                    hdr = self.getPfsHeader(seqno=seqno, fullHeader=(read == 1), cmd=cmd)
+                    return hdr
                 else:
                     raise RuntimeError(f'actor.instrument is not a known device: {self.actor.instrument}')
 
-            def pfsHeaderCB(ramp, group, read, seqno):
-                return []
-            
-            filenames = sam.takeRamp(nResets=nreset, nReads=nread, noReturn=True, nRamps=nramp,
+            filenames = sam.takeRamp(nResets=nreset, nReads=nread,
+                                     noReturn=True, nRamps=nramp,
                                      seqno=seqno, exptype=exptype,
-                                     headerCallback=pfsHeaderCB,
+                                     headerCallback=headerCB,
                                      readCallback=readCB)
         else:    
             self.flushProgramInput(cmd, doFinish=False)
@@ -410,7 +409,34 @@ class HxCmd(object):
         cmd.finish('text="%d ramps, elapsed=%0.3f, perRamp=%0.3f, perRead=%0.3f"' %
                    (nramp, dt, dt/nramp, dt/(nramp*(nread+nreset+ndrop))))
             
+    def _getMhsHeader(self, cmd):
+        """ Gather FITS cards from all actors we are interested in. """
 
+        cmd.debug('text="fetching MHS cards..."')
+        cards = fitsUtils.gatherHeaderCards(cmd, self.actor, shortNames=True)
+        cmd.debug('text="fetched %d MHS cards..."' % (len(cards)))
+
+        # Until we convert to fitsio, convert cards to pyfits
+        pycards = []
+        for c in cards:
+            if isinstance(c, str):
+                pcard = 'COMMENT', c
+            else:
+                pcard = c['name'], c['value'], c.get('comment', '')
+            pycards.append(pcard)
+            cmd.debug('text=%s' % (qstr("fetched card: %s" % (str(pcard)))))
+
+        return pycards
+    
+
+    def getPfsHeader(self, seqno=None,
+                     exptype='TEST',
+                     fullHeader=True, cmd=None):
+
+        mhsCards = self._getMhsHeader(cmd)
+        return mhsCards
+    
+        
     def reloadLogic(self, cmd):
         self.sam.reloadLogic()
         cmd.finish()
