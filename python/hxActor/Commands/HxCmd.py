@@ -9,7 +9,7 @@ import astropy.io.fits as pyfits
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
 from opscore.utility.qstr import qstr
-import actorcore.utility.fits as actorFits
+from actorcore.utility import fits as fitsUtils
 
 class HxCmd(object):
 
@@ -83,9 +83,12 @@ class HxCmd(object):
             self.dataPrefix = "PFJA"
 
             def filenameFunc(dataRoot, seqno):
+                """ Return a pair of filenames, one for the ramp, one for the single stack image. """
+                
                 # Write the full ramp
-                fileName = self.actor.spectroIds.makeFitsName(visit=seqno, fileType='B')
-                return os.path.join(dataRoot, fileName),
+                fileNameA = self.actor.ids.makeFitsName(visit=seqno, fileType='A')
+                fileNameB = self.actor.ids.makeFitsName(visit=seqno, fileType='B')
+                return os.path.join(dataRoot, fileNameA), os.path.join(dataRoot, fileNameB)
             
         from hxActor.charis import seqPath
         self.fileGenerator = seqPath.NightFilenameGen(self.dataRoot,
