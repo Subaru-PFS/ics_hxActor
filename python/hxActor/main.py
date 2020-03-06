@@ -17,7 +17,7 @@ class OurActor(actorcore.ICC.ICC):
                  debugLevel=30):
 
         """ Setup an Actor instance. See help for actorcore.Actor for details. """
-        
+
         self.instrument = instrument
         if instrument == 'PFS':
             self.ids = spectroIds.SpectroIds(partName=camName)
@@ -26,20 +26,22 @@ class OurActor(actorcore.ICC.ICC):
             modelNames = ()
         else:
             name = "hx"
-            modelNames = ('hx',)
+            modelNames = ('hx', 'charis')
             
         # This sets up the connections to/from the hub, the logger, and the twisted reactor.
         #
-        print(f'configuring for {name}, instrument={instrument}')
+        print(f'configuring for {name}, camera={self.ids.camName} instrument={instrument}')
         actorcore.ICC.ICC.__init__(self, name, 
                                    productName=productName,
                                    modelNames=modelNames)
+        # For engineering, where the piepan might not be the same as the camera
+        self.piepanName = self.ids.camName
         try:
             imageCamName = self.config.get(self.name, 'imageCamName')
             self.ids = spectroIds.SpectroIds(partName=imageCamName)
             self.logger.warning(f'RECONFIGURED for imageCam {imageCamName}')
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.info("not overwriting imageCam: %s", e)
 
         self.everConnected = False
 
@@ -51,12 +53,13 @@ class OurActor(actorcore.ICC.ICC):
             self.attachAllControllers()
             self.everConnected = True
 
-            models = [m % self.ids.idDict for m in ('xcu_%(camName)s', 'hx_%(camName)s')]
-#                                                    'enu_%(specName)s', 'dcb_%(specName)s',)]
+            models = ['gen2', 'pfilamps']
+            models.extend([m % self.ids.idDict for m in ('hx_%(camName)s', 'enu_%(specName)s')])
+            models.extend(['dcb', f'xcu_{self.piepanName}'])
+
             self.logger.info('adding models: %s', models)
             self.addModels(models)
             self.logger.info('added models: %s', self.models.keys())
-            
 #
 # To work
 def main():
