@@ -5,7 +5,7 @@ import logging
 import actorcore.ICC
 
 try:
-    from pfscore import spectroIds
+    from pfs.utils import spectroIds
     instrument = "PFS"
 except ImportError:
     instrument = "CHARIS"
