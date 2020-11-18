@@ -42,6 +42,7 @@ class OurActor(actorcore.ICC.ICC):
             self.logger.warning(f'RECONFIGURED for imageCam {imageCamName}')
         except Exception as e:
             self.logger.info("not overwriting imageCam: %s", e)
+        self.logger.info(f'ids: {self.ids.idDict}')
 
         self.everConnected = False
 

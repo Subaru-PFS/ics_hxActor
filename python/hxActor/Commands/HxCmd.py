@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+from importlib import reload
+
 import os.path
 import time
 
@@ -28,19 +30,23 @@ class HxCmd(object):
             ('hx', '@raw', self.hxRaw),
             ('bounce', '', self.bounce),
             ('hxconfig', '[<configName>]', self.hxconfig),
+            ('getVoltage', '<name>', self.sampleVoltage),
             ('getVoltages', '', self.getVoltages),
             ('getSpiRegisters', '', self.getSpiRegisters),
+            ('getRefCal', '', self.getRefCal),
             ('getTelemetry', '', self.getTelemetry),
             ('getAsicPower', '', self.getAsicPower),
             ('getAsicErrors', '', self.getAsicErrors),
             ('resetAsic', '', self.resetAsic),
             ('powerOffAsic', '', self.powerOffAsic),
             ('powerOnAsic', '', self.powerOnAsic),
-            ('setVoltage', '<voltageName> <voltage>', self.setVoltage),
+            ('setVoltage', '<name> <voltage>', self.setVoltage),
             ('ramp',
              '[<nramp>] [<nreset>] [<nread>] [<ngroup>] [<ndrop>] [<itime>] [@splitRamps] [<seqno>] [<exptype>] [<objname>]',
              self.takeRamp),
             ('reloadLogic', '', self.reloadLogic),
+            ('readAsic', '<reg> [<nreg>]', self.getAsicReg),
+            ('readSam', '<reg> [<nreg>]', self.getSamReg),
         ]
 
         # Define typed command arguments for the above commands.
@@ -52,7 +58,7 @@ class HxCmd(object):
                                         keys.Key("nreset", types.Int(), default=1,
                                                  help='number of resets to make.'),
                                         keys.Key("nread", types.Int(), default=2,
-                                                 help='number of readss to take.'),
+                                                 help='number of reads to take.'),
                                         keys.Key("ngroup", types.Int(), default=1,
                                                  help='number of groups.'),
                                         keys.Key("ndrop", types.Int(), default=0,
@@ -65,10 +71,14 @@ class HxCmd(object):
                                                  help='What to put in OBJECT.'),
                                         keys.Key("configName", types.String(), default=None,
                                                  help='configuration name'),
-                                        keys.Key("voltageName", types.String(), default=None,
+                                        keys.Key("name", types.String(), default=None,
                                                  help='voltage name'),
                                         keys.Key("voltage", types.Float(), default=None,
                                                  help='voltage'),
+                                        keys.Key("reg", types.String(),
+                                                 help='register number (hex or int)'),
+                                        keys.Key("nreg", types.Int(), default=1,
+                                                 help='number of registers to read'),
                                         )
 
         self.backend = 'hxhal'
@@ -86,8 +96,8 @@ class HxCmd(object):
                 """ Return a pair of filenames, one for the ramp, one for the single stack image. """
                 
                 # Write the full ramp
-                fileNameA = self.actor.ids.makeFitsName(visit=seqno, fileType='A')
-                fileNameB = self.actor.ids.makeFitsName(visit=seqno, fileType='B')
+                fileNameA = self.actor.ids.makeSpsFitsName(visit=seqno, fileType='A')
+                fileNameB = self.actor.ids.makeSpsFitsName(visit=seqno, fileType='B')
                 return os.path.join(dataRoot, fileNameA), os.path.join(dataRoot, fileNameB)
             
         from hxActor.charis import seqPath
@@ -128,14 +138,14 @@ class HxCmd(object):
         cmd.finish()
         
     def setVoltage(self, cmd):
-        """Set a songle Hx bias voltage. """
+        """Set a single Hx bias voltage. """
         
         if self.backend is not 'hxhal' or self.controller is None:
             cmd.fail('text="No hxhal controller"')
             return
 
         cmdKeys = cmd.cmd.keywords
-        voltageName = cmdKeys['voltageName'].values[0]
+        voltageName = cmdKeys['name'].values[0]
         voltage = cmdKeys['voltage'].values[0]
         
         sam = self.sam
@@ -146,7 +156,112 @@ class HxCmd(object):
             cmd.fail('text="Failed to set voltage %s=%s: %s"' % (voltageName,
                                                                  voltage,
                                                                  e))
+        cmd.finish(f'text="set {voltageName} to {newVoltage:.3f}"')
+
+    def _sampleVoltage(self, cmd, voltageName, doFinish=True):
+        sam = self.sam
+
+        try:
+            volt, raw = sam.sampleVoltage(voltageName)
+        except Exception as e:
+            cmd.fail('text="Failed to sample voltage %s: %s"' % (voltageName,
+                                                                 e))
+            return
         
+        setting = sam.getBiasVoltage(voltageName)
+
+        cmdFunc = cmd.finish if doFinish else cmd.inform
+        cmdFunc(f'text="{voltageName:12s} = {volt: .3f} set {setting: .3f}, raw {raw:#04x}"')
+        
+    def sampleVoltage(self, cmd, doFinish=True):
+        """Sample a single Hx bias voltage. """
+        
+        if self.backend is not 'hxhal' or self.controller is None:
+            cmd.fail('text="No hxhal controller"')
+            return
+
+        cmdKeys = cmd.cmd.keywords
+        voltageName = str(cmdKeys['name'].values[0])
+
+        self._sampleVoltage(cmd, voltageName, doFinish=doFinish)
+        
+    def getVoltages(self, cmd):
+        sam = self.sam
+
+        self.getRefCal(cmd, doFinish=False)
+        for vname in sam.voltageNames:
+            self._sampleVoltage(cmd, vname, doFinish=False)
+            
+        cmd.finish()
+    
+    def getRefCal(self, cmd, doFinish=True):
+        """Sample the ASIC refence offset and gain. """
+        
+        if self.backend is not 'hxhal' or self.controller is None:
+            cmd.fail('text="No hxhal controller"')
+            return
+
+        sam = self.sam
+        sam._buildVoltageTable()
+
+        try:
+            aduPerVolt, aduOffset = sam.calibrateRefOffsetAndGain()
+        except Exception as e:
+            cmd.fail('text="Failed to fetch reference calibration %s"' % (e))
+
+        cmdFunc = cmd.finish if doFinish else cmd.inform
+        cmdFunc(f'text=" offset={aduOffset:#04x}/{aduOffset}; ADU/V={aduPerVolt} uV/ADU={1e6/aduPerVolt:0.1f}"')
+        
+    def getAsicReg(self, cmd):
+        """Read ASIC register(s). """
+        
+        if self.backend is not 'hxhal' or self.controller is None:
+            cmd.fail('text="No hxhal controller"')
+            return
+
+        cmdKeys = cmd.cmd.keywords
+        regnum = cmdKeys['reg'].values[0]
+        nreg = cmdKeys['nreg'].values[0] if 'nreg' in cmdKeys else 1
+        
+        sam = self.sam
+
+        try:
+            regnum = int(regnum, base=16)
+        except ValueError:
+            cmd.fail(f'text="regnum ({regnum}) is not a valid hex number"')
+            return
+
+        for i in range(nreg):
+            reg = regnum + i
+            val = sam.link.ReadAsicReg(reg)
+            cmd.inform('text="0x%04x = 0x%04x"' % (reg, val))
+            
+        cmd.finish()
+        
+    def getSamReg(self, cmd):
+        """Read SAM/Jade register(s). """
+        
+        if self.backend is not 'hxhal' or self.controller is None:
+            cmd.fail('text="No hxhal controller"')
+            return
+
+        cmdKeys = cmd.cmd.keywords
+        regnum = cmdKeys['reg'].values[0]
+        nreg = cmdKeys['nreg'].values[0] if 'nreg' in cmdKeys else 1
+        
+        sam = self.sam
+
+        try:
+            regnum = int(regnum, base=16)
+        except ValueError:
+            cmd.fail(f'text="regnum ({regnum}) is not a valid hex number"')
+            return
+
+        for i in range(nreg):
+            reg = regnum + i
+            val = sam.link.ReadJadeReg(reg)
+            cmd.inform('text="0x%04x = 0x%04x"' % (reg, val))
+            
         cmd.finish()
         
     def hxRaw(self, cmd):
@@ -286,11 +401,11 @@ class HxCmd(object):
         cmd.finish()
     
     def getTelemetry(self, cmd):
-        volts, amps = self.sam.telemetry()
+        volts, amps, labels = self.sam.telemetry()
         cmd.finish('text="see log for telemetry"')
     
     def getAsicPower(self, cmd):
-        V,A,W = self.sam.readAsicPower()
+        V,A,W = self.sam.printAsicPower()
 
         colLabels = ['Measurement', 'Voltage(V)', 'Current(mA)', 'Power(mW)']
         rowLabels = ['VDDA', 'Vref', 'VDD3p3', 'VDD', 'VDDIO']

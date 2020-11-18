@@ -31,13 +31,15 @@ class hxhal(object):
             firmware = self.actor.config.get('hxhal', 'firmware')
             initArgs['asicRegisterFile'] = firmware
         except Exception as e:
-            self.logger.debug('no firmware config:', e)
+            self.logger.warn('no firmware config:', e)
+            cmd.warning(f'text="no firmware config: {e}"')
             pass
         
         try:
             hxconfig = self.actor.config.get('hxhal', 'hxconfig')
         except Exception as e: 
-            self.logger.debug('no hxconfig config:', e)
+            self.logger.warn('no hxconfig config:', e)
+            cmd.warning(f'text="no hxconfig config: {e}"')
             hxconfig = None
 
         if cmd is not None:
