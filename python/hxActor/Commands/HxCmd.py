@@ -75,6 +75,10 @@ class HxCmd(object):
                                                  help='voltage name'),
                                         keys.Key("voltage", types.Float(), default=None,
                                                  help='voltage'),
+                                        keys.Key("lamp", types.Int(), default=0,
+                                                 help='lamp name'),
+                                        keys.Key("lampPower", types.Int(), default=0,
+                                                 help='lamp power (0..1023)xs'),
                                         keys.Key("reg", types.String(),
                                                  help='register number (hex or int)'),
                                         keys.Key("nreg", types.Int(), default=1,
@@ -379,7 +383,7 @@ class HxCmd(object):
         for i, reg in enumerate(h4Regs):
             cmd.inform(f'spiReg%d=0x%04x' % (i, reg))
         cmd.finish()
-    
+
     def resetAsic(self, cmd):
         self.sam.resetAsic()
         self.getAsicErrors(cmd)
@@ -425,6 +429,44 @@ class HxCmd(object):
             cmd.inform('text="bank %d total: %0.3fW"' % (bank_i, bankPower/1000.0))
         
         cmd.finish('text="see log for telemetry"')
+        
+    def lamp(self, lamp, lampPower, cmd):
+        if self.actor.ids.camName != 'n8':
+            return
+
+        from hxActor.Commands import opticslab
+        reload(opticslab)
+
+        opticslab.lampCmd(lamp, lampPower)
+        cmd.inform('text="lamp %s=%s"' % (lamp, lampPower))
+
+    def _addLampCard1(self, lamp, lampPower):
+        if self.actor.ids.camName != 'n8':
+            return
+
+        self.hxCards['W_OLLAMP'] = pyfits.Card('W_OLLAMP', lamp, 'Optics lab lamp')
+        self.hxCards['W_OLLPLV'] = pyfits.Card('W_OLLPLV', lampPower, 'Optics lab lamp command level')
+        
+    def getLastState(self, lamp, lampPower, cmd):
+        if self.actor.ids.camName != 'n8':
+            return
+
+        from hxActor.Commands import opticslab
+        reload(opticslab)
+
+        try:
+            current, lam, flux = opticslab.getFlux(lamp)
+        except Exception:
+            cmd.warn('text="failed to get lamp info for optics lab"')
+            return
+        
+        cmd.inform('text="lamp %s=%s %s %s %s"' % (lamp, lampPower,
+                                                   current, lam, flux))
+        self.hxCards['W_OLLAMP'] = pyfits.Card('W_OLLAMP', lamp, 'Optics lab lamp')
+        self.hxCards['W_OLLPLV'] = pyfits.Card('W_OLLPLV', lampPower, 'Optics lab lamp command level')
+        self.hxCards['W_OLLPWV'] = pyfits.Card('W_OLLPWV', lam, '[nm] Lamp center wavelength')
+        self.hxCards['W_OLLPCR'] = pyfits.Card('W_OLLPCR', current, '[A] Photodiode current')
+        self.hxCards['W_OLFLUX'] = pyfits.Card('W_OLFLUX', flux, '[photons/s] Calibrated flux')
     
     def takeRamp(self, cmd):
         """Main exposure entry point. 
@@ -441,6 +483,11 @@ class HxCmd(object):
         seqno = cmdKeys['seqno'].values[0] if ('seqno' in cmdKeys) else None
         exptype = cmdKeys['exptype'].values[0] if ('exptype' in cmdKeys) else 'TEST'
         objname = cmdKeys['objname'].values[0] if ('objname' in cmdKeys) else 'TEST'
+        lamp = cmdKeys['lamp'].values[0] if ('lamp' in cmdKeys) else 0
+        lampPower = cmdKeys['lampPower'].values[0] if ('lampPower' in cmdKeys) else 0
+        outputReset = 'outputReset' in cmdKeys
+
+        self.lamp(0, 0, cmd)
         
         cmd.diag('text="ramps=%s resets=%s reads=%s rdrops=%s rgroups=%s itime=%s seqno=%s exptype=%s"' %
                  (nramp, nreset, nread, ndrop, ngroup, itime, seqno, exptype))
@@ -460,15 +507,25 @@ class HxCmd(object):
         
         cmd.inform('text="configuring ramp..."')
         cmd.inform('ramp=%d,%d,%d,%d,%d' % (nramp,ngroup,nreset,nread,ndrop))
-
+        self.hxCards = dict()
+        self._addLampCard1(lamp, lampPower)
+        
         if self.backend == 'hxhal':
             t0 = time.time()
             sam = self.sam
             sam.fileGenerator = self.fileGenerator
             
-            def readCB(ramp, group, read, filename, image):
+            def readCB(ramp, group, read, filename, image,
+                       lamp=lamp, lampPower=lampPower):
                 cmd.inform('hxread=%s,%d,%d,%d' % (filename, ramp, group, read))
-                if nread == read:
+                if read == 0 or group == 0 and read == nreset:
+                    if lampPower != 0:
+                        self.lamp(lamp, lampPower, cmd)
+                if read == nread-1:
+                    self.getLastState(lamp, lampPower, cmd)
+                if read == nread:
+                    if lampPower != 0:
+                        self.lamp(0, 0, cmd)
                     cmd.inform('filename=%s' % (filename))
 
             def headerCB(ramp, group, read, seqno):
@@ -542,13 +599,24 @@ class HxCmd(object):
             cmd.debug('text=%s' % (qstr("fetched card: %s" % (str(pcard)))))
 
         return pycards
+
     
+    def _getHxHeader(self, cmd):
+        """ Gather FITS cards from ourselves. """
+
+        cmd.debug('text="fetching HX cards..."')
+        cards = self.hxCards.values()
+        cmd.debug('text="fetched %d HX cards..."' % (len(cards)))
+
+        return cards
 
     def getPfsHeader(self, seqno=None,
                      exptype='TEST',
                      fullHeader=True, cmd=None):
 
         mhsCards = self._getMhsHeader(cmd)
+        hxCards = self._getHxHeader(cmd)
+        mhsCards.extend(hxCards)
         return mhsCards
     
         

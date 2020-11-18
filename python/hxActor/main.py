@@ -58,7 +58,7 @@ class OurActor(actorcore.ICC.ICC):
             models.extend([m % self.ids.idDict for m in ('hx_%(camName)s', 'enu_%(specName)s')])
             models.extend(['dcb', f'xcu_{self.piepanName}'])
 
-            if self.ids.idDict['cam'] == 'n1':
+            if self.ids.idDict['camName'] == 'n1':
                 models.append('idg')
                 
             self.logger.info('adding models: %s', models)
