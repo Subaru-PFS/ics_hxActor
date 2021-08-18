@@ -98,14 +98,28 @@ class HxCmd(object):
                                                  help='lamp name'),
                                         keys.Key("lampPower", types.Int(), default=0,
                                                  help='lamp power (0..1023)xs'),
+                                        keys.Key("readoutSize", types.Int()*2, default=0,
+                                                 help='actual rows,cols of readout'),
                                         keys.Key("reg", types.String(),
                                                  help='register number (hex or int)'),
+                                        keys.Key("value", types.String(),
+                                                 help='register value (hex or int)'),
                                         keys.Key("nreg", types.Int(), default=1,
                                                  help='number of registers to read'),
+                                        keys.Key("interleaveOffset", types.Int(),
+                                                 help="after how many pixels is the ref. pixel read"),
+                                        keys.Key("interleaveRatio", types.Int(),
+                                                 help="the ratio between science and reference pixels."),
+                                        keys.Key("preampGain", types.Int(),
+                                                 help="the index of the preamp gain setting."),
+                                        keys.Key("numOutputs", types.Int(),
+                                                 help="the number of channels to read H4 with. 1,4,16,32."),
                                         )
 
         self.backend = 'hxhal'
         self.rampConfig = None
+
+        self.daqState = DaqState()
 
         if self.actor.instrument == "CHARIS":
             self.dataRoot = "/home/data/charis"
@@ -594,14 +608,24 @@ class HxCmd(object):
         opticslab.lampCmd(lamp, lampPower)
         cmd.inform('text="lamp %s=%s"' % (lamp, lampPower))
 
-    def _addLampCard1(self, lamp, lampPower):
+    def setHxCards(self, ramp, group, read, doClear=True):
+        if doClear:
+            self.hxCards = []
+
+        self.hxCards.append(dict(name='W_H4RAMP', value=ramp, comment='the current ramp number'))
+        self.hxCards.append(dict(name='W_H4GRUP', value=group, comment='the current group number'))
+        self.hxCards.append(dict(name='W_H4READ', value=read, comment='the current read number'))
+
+    def startLampCards(self, lamp, lampPower):
+        self.lampCards = []
         if self.actor.ids.camName != 'n8':
             return
 
-        self.hxCards['W_OLLAMP'] = pyfits.Card('W_OLLAMP', lamp, 'Optics lab lamp')
-        self.hxCards['W_OLLPLV'] = pyfits.Card('W_OLLPLV', lampPower, 'Optics lab lamp command level')
+        self.lampCards.append(dict(name='W_OLLAMP', value=lamp, comment='Optics lab lamp'))
+        self.lampCards.append(dict(name='W_OLLPLV', value=lampPower, comment='Optics lab lamp command level'))
         
-    def getLastState(self, lamp, lampPower, cmd):
+    def getLastLampState(self, lamp, lampPower, cmd):
+        self.lampCards = []
         if self.actor.ids.camName != 'n8':
             return
 
@@ -616,12 +640,12 @@ class HxCmd(object):
         
         cmd.inform('text="lamp %s=%s %s %s %s"' % (lamp, lampPower,
                                                    current, lam, flux))
-        self.hxCards['W_OLLAMP'] = pyfits.Card('W_OLLAMP', lamp, 'Optics lab lamp')
-        self.hxCards['W_OLLPLV'] = pyfits.Card('W_OLLPLV', lampPower, 'Optics lab lamp command level')
-        self.hxCards['W_OLLPWV'] = pyfits.Card('W_OLLPWV', lam, '[nm] Lamp center wavelength')
-        self.hxCards['W_OLLPCR'] = pyfits.Card('W_OLLPCR', current, '[A] Photodiode current')
-        self.hxCards['W_OLFLUX'] = pyfits.Card('W_OLFLUX', flux, '[photons/s] Calibrated flux')
-    
+        self.hxCards.append(dict(name='W_OLLAMP', value=lamp, comment='Optics lab lamp'))
+        self.hxCards.append(dict(name='W_OLLPLV', value=lampPower, comment='Optics lab lamp command level'))
+        self.hxCards.append(dict(name='W_OLLPWV', value=lam, comment='[nm] Lamp center wavelength'))
+        self.hxCards.append(dict(name='W_OLLPCR', value=current, comment='[A] Photodiode current'))
+        self.hxCards.append(dict(name='W_OLFLUX', value=flux, comment='[photons/s] Calibrated flux'))
+
     def takeRamp(self, cmd):
         """Main exposure entry point. 
         """
@@ -742,39 +766,133 @@ class HxCmd(object):
         cards = fitsUtils.gatherHeaderCards(cmd, self.actor, shortNames=True)
         cmd.debug('text="fetched %d MHS cards..."' % (len(cards)))
 
-        # Until we convert to fitsio, convert cards to pyfits
-        pycards = []
-        for c in cards:
-            if isinstance(c, str):
-                pcard = 'COMMENT', c
-            else:
-                pcard = c['name'], c['value'], c.get('comment', '')
-            pycards.append(pcard)
-            cmd.debug('text=%s' % (qstr("fetched card: %s" % (str(pcard)))))
-
-        return pycards
-
+        return cards
     
     def _getHxHeader(self, cmd):
         """ Gather FITS cards from ourselves. """
 
         cmd.debug('text="fetching HX cards..."')
-        cards = self.hxCards.values()
+        cards = self.hxCards
         cmd.debug('text="fetched %d HX cards..."' % (len(cards)))
 
         return cards
+
+    def grabAllH4Info(self, cmd, doFinish=True):
+        """Squirrel away all reasonably available ASIC/SAM/H4 info.
+
+        It is OK to command the ASIC or the SAM, but not to take *too
+        long*. This method is called before the ramp is started, but
+        the caller might not expect a long or variable delay.
+
+        In practice, this means that we current grab:
+        - the ASIC configuration dictionary.
+        - the H4 SPI registers
+        - the ASIC voltage settings
+        - _some_ ASCI voltage readings.
+
+        """
+        self.daqState.hxConfig = self.sam.hxrgDetectorConfig.copy()
+        self.daqState.spiRegisters = self.sam.readAllH4SpiRegs()
+        self.getVoltageSettings(cmd, doFinish=False)
+        self.getMainVoltages(cmd, doFinish=False)
+        self.daqState.isValid =  True
+
+        if doFinish:
+            cmd.finish()
+
+    def genAllH4Cards(self, cmd):
+        """Return the H4 cards for the PHDU. Consumes what .grabAllH4Info() gathered
+        """
+
+        voltageCardNames = dict(VReset='W_4VRST',
+                                DSub='W_4DSUB',
+                                VBiasGate='W_4VBG',
+                                VBiasPower='W_4VBP',
+                                CellDrain='W_4CDRN',
+                                Drain='W_4DRN',
+                                VDDA='W_4VDDA',
+                                VDD='W_4VDD',
+                                Vrefmain='W_4VRM')
+        cards = []
+        cards.append(dict(name='comment', value=f'################################ Cards from H4 DAQ'))
+        for i, reg in enumerate(self.daqState.spiRegisters):
+            cards.append(dict(name=f'W_4SPI{i+1:02d}', value=reg, comment=f'H4 SPI register {i+1}'))
+        for name, setting in self.daqState.voltageSettings.items():
+            cardName = voltageCardNames.get(name)
+            if cardName is None:
+                continue
+            cards.append(dict(name=f'{cardName}S', value=np.round(setting, 4), comment=f'[V] {name} setting'))
+
+        for name, reading in self.daqState.voltageReadings.items():
+            cardName = voltageCardNames.get(name)
+            if cardName is None:
+                continue
+            cards.append(dict(name=f'{cardName}V', value=np.round(reading, 4), comment=f'[V] {name} reading'))
+
+        cfg = self.daqState.hxConfig
+        cards.append(dict(name='W_H4IRP', value=cfg.h4Interleaving,
+                          comment='whether we are using IRP-enabled firmware'))
+        cards.append(dict(name='W_H4IRPN', value=cfg.interleaveRatio,
+                          comment='the number of data pixels per ref pixel'))
+        cards.append(dict(name='W_H4IRPO', value=cfg.interleaveOffset,
+                          comment='how many data pixels before the ref pixel'))
+
+        cards.append(dict(name='W_H4NCHN', value=cfg.numOutputs,
+                          comment='how many readout channels we have'))
+        cards.append(dict(name='W_H4GNST', value=cfg.preampGain,
+                          comment='the ASIC preamp gain setting'))
+        cards.append(dict(name='W_H4GAIN', value=self.sam.getGainFromTable(cfg.preampGain),
+                          comment='[dB] the ASIC preamp gain'))
+
+        return cards
+
+    def genJhuCards(self, cmd):
+        allCards = []
+        if len(self.lampCards) > 0:
+            allCards.extend(self.lampCards)
+
+        return allCards
 
     def getPfsHeader(self, seqno=None,
                      exptype='TEST',
                      fullHeader=True, cmd=None):
 
-        mhsCards = self._getMhsHeader(cmd)
+        allCards = []
+        allCards.append(dict(name='DATA-TYP', value=exptype.upper(), comment='Subaru-style exposure type'))
+
+        if fullHeader:
+            fullRampTime = actortime.TimeCards()
+            fullRampTime.end(expTime=self.nread*self.sam.frameTime)
+            timecards = fullRampTime.getCards()
+            allCards.extend(timecards)
+
+            hxCards = self.genAllH4Cards(cmd)
+            allCards.extend(hxCards)
+            if self.actor.ids.site == 'J':
+                allCards.extend(self.genJhuCards(cmd))
+
+            mhsCards = self._getMhsHeader(cmd)
+            allCards.extend(mhsCards)
+        else:
+            allCards.append(dict(name='INHERIT', value=True))
+
         hxCards = self._getHxHeader(cmd)
-        mhsCards.extend(hxCards)
-        return mhsCards
+        allCards.extend(hxCards)
+
+        return allCards
     
         
     def reloadLogic(self, cmd):
         self.sam.reloadLogic()
         cmd.finish()
         
+    def setReadSpeed(self, cmd):
+        cmdKeys = cmd.cmd.keywords
+
+        style = 'fast' if 'fast' in cmdKeys else 'slow'
+        logLevel = logging.DEBUG if 'debug' in cmdKeys else logging.INFO
+
+        link = self.sam.link
+        link.configureReadout(style=style, logLevel=logLevel)
+        cmd.inform(f'text="readStyle {link.readCheckInterval} {link.readChunkSize}"')
+        cmd.finish()
