@@ -48,8 +48,13 @@ class HxCmd(object):
         self.vocab = [
             ('hx', '@raw', self.hxRaw),
             ('bounce', '', self.bounce),
-            ('hxconfig', '[<configName>]', self.hxconfig),
+            ('reconnect', '[<firmwareFile>] [<configName>]', self.reconnect),
+            ('hxconfig',
+             '[<configName>] [<interleaveRatio>] [<interleaveOffset>] [<preampGain>] [<numOutputs>]',
+             self.hxconfig),
+            ('reconfigAsic', '', self.reconfigAsic),
             ('getVoltage', '<name>', self.sampleVoltage),
+            ('getVoltageSettings', '', self.getVoltageSettings),
             ('getVoltages', '', self.getVoltages),
             ('getSpiRegisters', '', self.getSpiRegisters),
             ('getRefCal', '', self.getRefCal),
@@ -61,11 +66,16 @@ class HxCmd(object):
             ('powerOnAsic', '', self.powerOnAsic),
             ('setVoltage', '<name> <voltage>', self.setVoltage),
             ('ramp',
-             '[<nramp>] [<nreset>] [<nread>] [<ngroup>] [<ndrop>] [<itime>] [@splitRamps] [<seqno>] [<exptype>] [<objname>]',
+             '[<nramp>] [<nreset>] [<nread>] [<ngroup>] [<ndrop>] [<itime>] '
+             '[<seqno>] [<exptype>] [<objname>] '
+             '[<lamp>] [<lampPower>] [<readoutSize>] [@outputReset] [@rawImage]',
              self.takeRamp),
             ('reloadLogic', '', self.reloadLogic),
             ('readAsic', '<reg> [<nreg>]', self.getAsicReg),
+            ('writeAsic', '<reg> <value>', self.writeAsicReg),
             ('readSam', '<reg> [<nreg>]', self.getSamReg),
+            ('setReadSpeed', '@(fast|slow) [@debug]', self.setReadSpeed),
+            ('grabAllH4Info', '[@doRef]', self.grabAllH4Info),
         ]
 
         # Define typed command arguments for the above commands.
@@ -90,6 +100,8 @@ class HxCmd(object):
                                                  help='What to put in OBJECT.'),
                                         keys.Key("configName", types.String(), default=None,
                                                  help='configuration name'),
+                                        keys.Key("firmwareFile", types.String(), default=None,
+                                                 help='name of ASIC firmware file or path'),
                                         keys.Key("name", types.String(), default=None,
                                                  help='voltage name'),
                                         keys.Key("voltage", types.Float(), default=None,
@@ -129,6 +141,11 @@ class HxCmd(object):
             self.dataRoot = "/data/pfsx"
             self.dataPrefix = "PFJA"
 
+            # We want the fits writing processes to be persistent, mostly so that
+            # we do not have to pay attention to when they finish.
+            self.rampBuffer = fitsWriter.FitsBuffer()
+            self.cdsBuffer = fitsWriter.FitsBuffer()
+
             def filenameFunc(dataRoot, seqno):
                 """ Return a pair of filenames, one for the ramp, one for the single stack image. """
                 
@@ -141,7 +158,7 @@ class HxCmd(object):
         self.fileGenerator = seqPath.NightFilenameGen(self.dataRoot,
                                                       namesFunc = filenameFunc,
                                                       filePrefix=self.dataPrefix)
-        
+
     @property
     def controller(self):
         return self.actor.controllers.get(self.backend, None)
