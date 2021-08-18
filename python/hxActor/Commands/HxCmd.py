@@ -2,16 +2,35 @@
 
 from importlib import reload
 
+import logging
 import os.path
 import time
 
-import fitsio
+import numpy as np
+
 import astropy.io.fits as pyfits
 
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
 from opscore.utility.qstr import qstr
 from actorcore.utility import fits as fitsUtils
+from actorcore.utility import fitsWriter
+from actorcore.utility import timecards as actortime
+
+from ics.hxutils import hxramp
+from hxActor.Commands import ramp
+
+reload(fitsWriter)
+reload(hxramp)
+reload(ramp)
+
+class DaqState(object):
+    def __init__(self):
+        self.isValid = False
+        self.hxConfig = dict()
+        self.spiRegisters = dict()
+        self.voltageSettings = dict()
+        self.voltageReadings = dict()
 
 class HxCmd(object):
 
@@ -121,10 +140,50 @@ class HxCmd(object):
     def bounce(self, cmd):
         self.controller.disconnect()
 
-    def hxconfig(self, cmd):
+    def reconnect(self, cmd, doFinish=True):
+        """Reboot and reconfigure ASIC. """
+
+        cmdKeys = cmd.cmd.keywords
+        firmwareFile = cmdKeys['firmwareFile'].values[0] if 'firmwareFile' in cmdKeys else None
+        configName = cmdKeys['configName'].values[0] if 'configName' in cmdKeys else None
+
+        if self.backend != 'hxhal' or self.controller is None:
+            cmd.fail('text="No hxhal controller"')
+            return
+
+        self.controller.reconnect(firmwareName=firmwareFile, configName=configName, cmd=cmd)
+        self.getHxConfig(cmd=cmd, doFinish=doFinish)
+
+    def hxconfig(self, cmd, doFinish=True):
         """Set the given hxhal configuration. """
-        
-        if self.backend is not 'hxhal' or self.controller is None:
+
+        cmdKeys = cmd.cmd.keywords
+        tweaks = dict()
+        if 'numOutputs' in cmdKeys:
+            numChannel = cmdKeys['numOutputs']
+            if numChannel not in {0,1,4,16,32}:
+                cmd.fail(f'text="invalid numOutputs={numChannel}. Must be 0,1,4,16,32"')
+                return
+            tweaks['numOutputs'] = numChannel
+        if 'preampGain' in cmdKeys:
+            preampGain = cmdKeys['preampGain']
+            if preampGain < 0 or preampGain > 15:
+                cmd.fail('text="invalid gain setting={preampGain}. Must be 0..15"')
+            tweaks['preampGain'] = preampGain
+
+        if 'interleaveRatio' in cmdKeys:
+            interleaveRatio = cmdKeys['interleaveRatio']
+            if interleaveRatio < 0 or interleaveRatio > 8:
+                cmd.fail('text="invalid interleave ratio={interleaveRatio}. Must be 0..8"')
+            tweaks['interleaveRatio'] = interleaveRatio
+
+        if 'interleaveOffset' in cmdKeys:
+            interleaveOffset = cmdKeys['interleaveOffset']
+            if interleaveOffset < 0 or interleaveOffset > 8:
+                cmd.fail('text="invalid interleave ratio={interleaveOffset}. Must be 0..8"')
+            tweaks['interleaveOffset'] = interleaveOffset
+
+        if self.backend != 'hxhal' or self.controller is None:
             cmd.fail('text="No hxhal controller"')
             return
 
@@ -138,13 +197,52 @@ class HxCmd(object):
         except:
             configGroup = 'h4rgConfig' if self.actor.instrument == 'PFS' else 'h2rgConfig'
             
-        sam.updateHxRgConfigParameters(configGroup, configName)
+        sam.updateHxRgConfigParameters(configGroup, configName, tweaks=tweaks)
+
+        self.getHxConfig(cmd=cmd, doFinish=False)
+
+        if doFinish:
+            cmd.finish()
+
+    def reconfigAsic(self, cmd):
+        """Trigger the ASIC reconfig process. """
+
+        self.sam.reconfigureAsic()
+        self.getHxConfig(cmd, doFinish=False)
         cmd.finish()
-        
+
+    def updateDaqState(self, cmd, always=False):
+        """Make sure our snapshot of the ASIC config is valid. """
+
+        if always or not self.daqState.isValid:
+            self.getHxConfig(cmd, doFinish=False)
+
+    def getHxConfig(self, cmd, doFinish=True):
+        self.grabAllH4Info(cmd, doFinish=False)
+        cfg = self.daqState.hxConfig
+
+        keys = []
+        if not cfg.h4Interleaving:
+            keys.append('irp=0,0,0')
+        else:
+            keys.append(f'irp={cfg.h4Interleaving},{cfg.interleaveRatio},{cfg.interleaveOffset}')
+        gainFactor = self.sam.getGainFromTable(cfg.preampGain)
+        keys.append(f'preamp={cfg.preampGain},{gainFactor},{cfg.preampInputScheme},{cfg.preampInput},'
+                    f'{cfg.preampInput1ByUser},{cfg.preampInput8ByUser}')
+        keys.append(f'window={cfg.bWindowMode},{cfg.xStart},{cfg.xStop},{cfg.yStart},{cfg.yStop}')
+
+        for k in keys:
+            cmd.inform(k)
+
+        if doFinish:
+            cmd.finish()
+
+        return cfg
+
     def setVoltage(self, cmd):
         """Set a single Hx bias voltage. """
         
-        if self.backend is not 'hxhal' or self.controller is None:
+        if self.backend != 'hxhal' or self.controller is None:
             cmd.fail('text="No hxhal controller"')
             return
 
@@ -176,11 +274,12 @@ class HxCmd(object):
 
         cmdFunc = cmd.finish if doFinish else cmd.inform
         cmdFunc(f'text="{voltageName:12s} = {volt: .3f} set {setting: .3f}, raw {raw:#04x}"')
-        
+        return voltageName, volt
+
     def sampleVoltage(self, cmd, doFinish=True):
         """Sample a single Hx bias voltage. """
         
-        if self.backend is not 'hxhal' or self.controller is None:
+        if self.backend != 'hxhal' or self.controller is None:
             cmd.fail('text="No hxhal controller"')
             return
 
@@ -198,10 +297,33 @@ class HxCmd(object):
             
         cmd.finish()
     
+    def getVoltageSettings(self, cmd, doFinish=True):
+        vlist = self.sam.getBiasVoltages()
+        settings = self.daqState.voltageSettings = dict()
+        for name, setting in vlist:
+            settings[name] = setting
+            cmd.inform(f'text="{name:12s} = {setting: .3f}"')
+        if doFinish:
+            cmd.finish()
+
+    def getMainVoltages(self, cmd, doFinish=False):
+        cmdKeys = cmd.cmd.keywords
+        doRef = 'doRef' in cmdKeys
+
+        if doRef:
+            self.getRefCal(cmd, doFinish=False)
+        readings = self.daqState.voltageReadings = dict()
+        for vname in ('VReset', 'DSub', 'VBiasGate', 'Vrefmain'):
+            name, reading = self._sampleVoltage(cmd, vname, doFinish=False)
+            readings[name] = reading
+
+        if doFinish:
+            cmd.finish()
+
     def getRefCal(self, cmd, doFinish=True):
         """Sample the ASIC refence offset and gain. """
         
-        if self.backend is not 'hxhal' or self.controller is None:
+        if self.backend != 'hxhal' or self.controller is None:
             cmd.fail('text="No hxhal controller"')
             return
 
@@ -219,7 +341,7 @@ class HxCmd(object):
     def getAsicReg(self, cmd):
         """Read ASIC register(s). """
         
-        if self.backend is not 'hxhal' or self.controller is None:
+        if self.backend != 'hxhal' or self.controller is None:
             cmd.fail('text="No hxhal controller"')
             return
 
@@ -242,10 +364,42 @@ class HxCmd(object):
             
         cmd.finish()
         
+    def writeAsicReg(self, cmd):
+        """Write single ASIC register. """
+
+        if self.backend != 'hxhal' or self.controller is None:
+            cmd.fail('text="No hxhal controller"')
+            return
+
+        cmdKeys = cmd.cmd.keywords
+        regnum = cmdKeys['reg'].values[0]
+        value = cmdKeys['value'].values[0]
+
+        sam = self.sam
+
+        try:
+            regnum = int(regnum, base=16)
+        except ValueError:
+            cmd.fail(f'text="regnum ({regnum}) is not a valid hex number"')
+            return
+
+        try:
+            value = int(value, base=0)
+        except ValueError:
+            cmd.fail(f'text="regnum ({regnum}) is not a valid ing or hex number"')
+            return
+
+        cmd.inform('text="setting 0x%04x = 0x%04x"' % (regnum, value))
+        sam.link.WriteAsicReg(regnum, value)
+        val = sam.link.ReadAsicReg(regnum)
+        cmd.inform('text="0x%04x = 0x%04x"' % (regnum, val))
+
+        cmd.finish()
+
     def getSamReg(self, cmd):
         """Read SAM/Jade register(s). """
         
-        if self.backend is not 'hxhal' or self.controller is None:
+        if self.backend != 'hxhal' or self.controller is None:
             cmd.fail('text="No hxhal controller"')
             return
 
