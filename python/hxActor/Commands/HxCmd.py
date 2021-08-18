@@ -556,7 +556,7 @@ class HxCmd(object):
         # voltageList = self.controller.getAllBiasVoltages
         return []
     
-    def getVoltages(self, cmd):
+    def XXgetVoltages(self, cmd):
         ret = self.sam.getBiasVoltages()
         for nv in ret:
             name, voltage = nv
@@ -680,8 +680,12 @@ class HxCmd(object):
         objname = cmdKeys['objname'].values[0] if ('objname' in cmdKeys) else 'TEST'
         lamp = cmdKeys['lamp'].values[0] if ('lamp' in cmdKeys) else 0
         lampPower = cmdKeys['lampPower'].values[0] if ('lampPower' in cmdKeys) else 0
+        readoutSize = cmdKeys['readoutSize'].values if ('readoutSize' in cmdKeys) else None
         outputReset = 'outputReset' in cmdKeys
+        rawImage = 'rawImage' in cmdKeys
 
+        if readoutSize is not None:
+            cmd.warn(f'text="overriding readout size to rows={readoutSize[0]}, cols={readoutSize[1]}"')
         self.lamp(0, 0, cmd)
         
         cmd.diag('text="ramps=%s resets=%s reads=%s rdrops=%s rgroups=%s itime=%s seqno=%s exptype=%s"' %
@@ -702,43 +706,130 @@ class HxCmd(object):
         
         cmd.inform('text="configuring ramp..."')
         cmd.inform('ramp=%d,%d,%d,%d,%d' % (nramp,ngroup,nreset,nread,ndrop))
-        self.hxCards = dict()
-        self._addLampCard1(lamp, lampPower)
-        
+
+        self.updateDaqState(cmd, always=False)
+        self.hxCards = []
+
         if self.backend == 'hxhal':
             t0 = time.time()
             sam = self.sam
-            sam.fileGenerator = self.fileGenerator
-            
-            def readCB(ramp, group, read, filename, image,
-                       lamp=lamp, lampPower=lampPower):
-                cmd.inform('hxread=%s,%d,%d,%d' % (filename, ramp, group, read))
-                if read == 0 or group == 0 and read == nreset:
-                    if lampPower != 0:
-                        self.lamp(lamp, lampPower, cmd)
-                if read == nread-1:
-                    self.getLastState(lamp, lampPower, cmd)
-                if read == nread:
-                    if lampPower != 0:
-                        self.lamp(0, 0, cmd)
-                    cmd.inform('filename=%s' % (filename))
+            if sam is None:
+                cmd.fail('text="the hxhal controller is not connected"')
+                return
 
-            def headerCB(ramp, group, read, seqno):
-                if self.actor.instrument == 'CHARIS':
+            if self.actor.instrument == 'PFS':
+                if nramp != 1:
+                    raise ValueError("PFS can only take one ramp at a time")
+
+                cdsFilename, rampFilename = self.fileGenerator.getNextFileset(seqno=seqno)
+
+                rampReporter = ramp.Ramp(cmd)
+                cdsReporter = ramp.Ramp(cmd, reportReads=False)
+                # self.grabAllH4Info(cmd, doFinish=False)
+                self.startLampCards(lamp, lampPower)
+                self.setHxCards(0, 0, 0, doClear=True)
+
+                headerCB =  None
+                noFiles = True
+                hxConfig = self.sam.hxrgDetectorConfig
+                nChannel = hxConfig.numOutputs
+                if hxConfig.h4Interleaving:
+                    irpOffset = hxConfig.interleaveOffset
+                outputReset = False
+
+                def readCB(ramp, group, read, filename, image,
+                           lamp=lamp, lampPower=lampPower):
+                    self.setHxCards(ramp, group, read)
+                    if ((outputReset and group == 0 and read == nreset) or
+                            (not outputReset and read == 0 and group == 1)):
+                        cmd.inform(f'text="creating FITS files at group={group} read={read}"')
+                        if lampPower != 0:
+                            cmd.inform(f'text="turning on flat lamp {lamp}@{lampPower}"')
+                            self.lamp(lamp, lampPower, cmd)
+
+                        # This is a very very bad guess for now. We are called at the end of the first
+                        # read, which may or may not be a reset frame.
+                        read0time = time.time()
+                        if outputReset:
+                            read0time -= 2*sam.frameTime
+                        else:
+                            read0time -= sam.frameTime
+                        self.read0time = read0time
+                        self.readTime = sam.frameTime
+                        phdr = self.getPfsHeader(seqno=seqno, exptype=exptype, cmd=cmd)
+                        self.logger.info(f'filename={filename}')
+                        self.rampBuffer.createFile(rampReporter, rampFilename, phdr)
+                        self.cdsBuffer.createFile(cdsReporter, cdsFilename, phdr)
+                    else:
+                        if read == nread-1:
+                            self.getLastLampState(lamp, lampPower, cmd)
+                        if rawImage:
+                            data = image
+                            ref = None
+                        else:
+                            data, ref = hxramp.splitIRP(image, nChannel=nChannel, refPix=irpOffset)
+                        hdr = self.getPfsHeader(seqno=seqno, exptype=exptype, fullHeader=False, cmd=cmd)
+                        cmd.inform(f'text="adding to ramp FITS file at group={group} read={read}"')
+                        self.rampBuffer.addHdu(data, hdr, hduId=(ramp, group, read),
+                                               extname=f'IMAGE_{read}')
+                        if ref is not None:
+                            self.rampBuffer.addHdu(ref, None, hduId=(ramp, group, None),
+                                                   extname=f'REF_{read}')
+                    if read == nread:
+                        cmd.inform(f'text="flushing CDS file, after {read}/{nread} reads"')
+                        if ref is None or ref.size != data.size:
+                            diff = data.astype('f4')
+                        else:
+                            diff = data.astype('f4')-ref
+                        self.cdsBuffer.addHdu(diff, None,
+                                              hduId=(ramp, group, read),
+                                              extname=f'IMAGE')
+                        self.rampBuffer.finishFile()
+                        self.cdsBuffer.finishFile()
+                        if lampPower != 0:
+                            self.lamp(0, 0, cmd)
+            else:
+                sam.fileGenerator = self.fileGenerator
+                noFiles = False
+                rampReporter = None
+                timeCB = None
+                def readCB(ramp, group, read, filename, image):
+                    cmd.inform('hxread=%s,%d,%d,%d' % (filename, ramp, group, read))
+                    if read == nread-1:
+                        self.getLastState(lamp, lampPower, cmd)
+                    if read == nread:
+                        cmd.inform('filename=%s' % (filename))
+
+                def headerCB(ramp, group, read, seqno):
                     hdr = self.getCharisHeader(seqno=seqno, fullHeader=(read == 1), cmd=cmd)
                     return hdr.cards
-                elif self.actor.instrument == 'PFS':
-                    hdr = self.getPfsHeader(seqno=seqno, fullHeader=(read == 1), cmd=cmd)
-                    return hdr
-                else:
-                    raise RuntimeError(f'actor.instrument is not a known device: {self.actor.instrument}')
-
-            filenames = sam.takeRamp(nResets=nreset, nReads=nread,
-                                     noReturn=True, nRamps=nramp,
-                                     seqno=seqno, exptype=exptype,
-                                     headerCallback=headerCB,
-                                     readCallback=readCB)
-        else:    
+            self.nread = nread
+            sam.takeRamp(nResets=nreset, nReads=nread,
+                         noReturn=True, nRamps=nramp,
+                         seqno=seqno, exptype=exptype,
+                         outputReset=outputReset,
+                         noFiles=noFiles,
+                         actualFrameSize=readoutSize,
+                         headerCallback=headerCB,
+                         readCallback=readCB)
+            cmd.inform('text="acquisition done; waiting for files to be closed."')
+            t1 = time.time()
+            dt = t1-t0
+            cmd.inform('text="%d ramps, elapsed=%0.3f, perRamp=%0.3f, perRead=%0.3f"' %
+                       (nramp, dt, dt/nramp, dt/(nramp*(nread+nreset+ndrop))))
+            # Now possibly wait on the fitsWriter processes.
+            if rampReporter is not None:
+                waitFor = 60
+                waitUntil = time.time() + waitFor
+                while True:
+                    if rampReporter.isFinished and cdsReporter.isFinished:
+                        break
+                    now = time.time()
+                    if now > waitUntil:
+                        cmd.warn(f'text="file writing process did not finish within {waitFor} seconds"')
+                        break
+                    time.sleep(0.5)
+        else:
             self.flushProgramInput(cmd, doFinish=False)
         
             ctrlr = self.controller
