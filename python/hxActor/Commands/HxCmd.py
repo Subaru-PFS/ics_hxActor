@@ -739,7 +739,14 @@ class HxCmd(object):
 
                 def readCB(ramp, group, read, filename, image,
                            lamp=lamp, lampPower=lampPower):
+
+                    global t0
                     self.setHxCards(ramp, group, read)
+                    if ramp == 0 and group == 0 and read == 0:
+                        cmd.inform(f'text="DAQ output start"')
+                        t0 = time.time()
+                        return
+
                     if ((outputReset and group == 0 and read == nreset) or
                             (not outputReset and read == 0 and group == 1)):
                         cmd.inform(f'text="creating FITS files at group={group} read={read}"')
