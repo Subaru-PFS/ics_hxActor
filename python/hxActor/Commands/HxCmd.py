@@ -976,8 +976,10 @@ class HxCmd(object):
                                 VDDA='W_4VDDA',
                                 VDD='W_4VDD',
                                 Vrefmain='W_4VRM')
-        cards = []
-        cards.append(dict(name='comment', value=f'################################ Cards from H4 DAQ'))
+
+        # *Start* with the MHS dictionary cards, then overwrite what we know better about.
+        cards = self._getH4MhsHeader(cmd)
+
         for i, reg in enumerate(self.daqState.spiRegisters):
             cards.append(dict(name=f'W_4SPI{i+1:02d}', value=reg, comment=f'H4 SPI register {i+1}'))
         for name, setting in self.daqState.voltageSettings.items():
@@ -992,20 +994,30 @@ class HxCmd(object):
                 continue
             cards.append(dict(name=f'{cardName}V', value=np.round(reading, 4), comment=f'[V] {name} reading'))
 
-        cfg = self.daqState.hxConfig
-        cards.append(dict(name='W_H4IRP', value=cfg.h4Interleaving,
-                          comment='whether we are using IRP-enabled firmware'))
-        cards.append(dict(name='W_H4IRPN', value=cfg.interleaveRatio,
-                          comment='the number of data pixels per ref pixel'))
-        cards.append(dict(name='W_H4IRPO', value=cfg.interleaveOffset,
-                          comment='how many data pixels before the ref pixel'))
+        def _replaceCard(cards, newCard):
+            for c_i, c in enumerate(cards):
+                if c['name'] == newCard['name']:
+                    cards.pop(c_i)
+                    break
+            cards.append(newCard)
 
-        cards.append(dict(name='W_H4NCHN', value=cfg.numOutputs,
-                          comment='how many readout channels we have'))
-        cards.append(dict(name='W_H4GNST', value=cfg.preampGain,
-                          comment='the ASIC preamp gain setting'))
-        cards.append(dict(name='W_H4GAIN', value=self.sam.getGainFromTable(cfg.preampGain),
-                          comment='[dB] the ASIC preamp gain'))
+        cfg = self.daqState.hxConfig
+        frameTime = self.calcFrameTime()
+        _replaceCard(cards, dict(name="W_FRMTIM", value=frameTime,
+                                 comment='[s] individual read time, per ASIC'))
+        _replaceCard(cards, dict(name='W_H4IRP', value=cfg.h4Interleaving,
+                                 comment='whether we are using IRP-enabled firmware'))
+        _replaceCard(cards, dict(name='W_H4IRPN', value=cfg.interleaveRatio,
+                                 comment='the number of data pixels per ref pixel'))
+        _replaceCard(cards, dict(name='W_H4IRPO', value=cfg.interleaveOffset,
+                                 comment='how many data pixels before the ref pixel'))
+
+        _replaceCard(cards, dict(name='W_H4NCHN', value=cfg.numOutputs,
+                                 comment='how many readout channels we have'))
+        _replaceCard(cards, dict(name='W_H4GNST', value=cfg.preampGain,
+                                 comment='the ASIC preamp gain setting'))
+        _replaceCard(cards, dict(name='W_H4GAIN', value=self.sam.getGainFromTable(cfg.preampGain),
+                                 comment='the ASIC preamp gain factor'))
 
         return cards
 
