@@ -35,11 +35,11 @@ class DaqState(object):
 class HxCmd(object):
 
     def __init__(self, actor):
-        
+
         # This lets us access the rest of the actor.
         self.actor = actor
         self.logger = self.actor.logger
-        
+
         # Declare the commands we implement. When the actor is started
         # these are registered with the parser, which will call the
         # associated methods when matched. The callbacks will be
@@ -148,12 +148,12 @@ class HxCmd(object):
 
             def filenameFunc(dataRoot, seqno):
                 """ Return a pair of filenames, one for the ramp, one for the single stack image. """
-                
+
                 # Write the full ramp
                 fileNameA = self.actor.ids.makeSpsFitsName(visit=seqno, fileType='A')
                 fileNameB = self.actor.ids.makeSpsFitsName(visit=seqno, fileType='B')
                 return os.path.join(dataRoot, fileNameA), os.path.join(dataRoot, fileNameB)
-            
+
         from hxActor.charis import seqPath
         self.fileGenerator = seqPath.NightFilenameGen(self.dataRoot,
                                                       namesFunc = filenameFunc,
@@ -220,14 +220,14 @@ class HxCmd(object):
 
         cmdKeys = cmd.cmd.keywords
         configName = cmdKeys['configName'].values[0]
-        
+
         sam = self.sam
 
         try:
             configGroup, configName = configName.split('.')
         except:
             configGroup = 'h4rgConfig' if self.actor.instrument == 'PFS' else 'h2rgConfig'
-            
+
         sam.updateHxRgConfigParameters(configGroup, configName, tweaks=tweaks)
 
         self.getHxConfig(cmd=cmd, doFinish=False)
@@ -272,7 +272,7 @@ class HxCmd(object):
 
     def setVoltage(self, cmd):
         """Set a single Hx bias voltage. """
-        
+
         if self.backend != 'hxhal' or self.controller is None:
             cmd.fail('text="No hxhal controller"')
             return
@@ -280,7 +280,7 @@ class HxCmd(object):
         cmdKeys = cmd.cmd.keywords
         voltageName = cmdKeys['name'].values[0]
         voltage = cmdKeys['voltage'].values[0]
-        
+
         sam = self.sam
 
         try:
@@ -300,7 +300,7 @@ class HxCmd(object):
             cmd.fail('text="Failed to sample voltage %s: %s"' % (voltageName,
                                                                  e))
             return
-        
+
         setting = sam.getBiasVoltage(voltageName)
 
         cmdFunc = cmd.finish if doFinish else cmd.inform
@@ -309,7 +309,7 @@ class HxCmd(object):
 
     def sampleVoltage(self, cmd, doFinish=True):
         """Sample a single Hx bias voltage. """
-        
+
         if self.backend != 'hxhal' or self.controller is None:
             cmd.fail('text="No hxhal controller"')
             return
@@ -318,16 +318,16 @@ class HxCmd(object):
         voltageName = str(cmdKeys['name'].values[0])
 
         self._sampleVoltage(cmd, voltageName, doFinish=doFinish)
-        
+
     def getVoltages(self, cmd):
         sam = self.sam
 
         self.getRefCal(cmd, doFinish=False)
         for vname in sam.voltageNames:
             self._sampleVoltage(cmd, vname, doFinish=False)
-            
+
         cmd.finish()
-    
+
     def getVoltageSettings(self, cmd, doFinish=True):
         vlist = self.sam.getBiasVoltages()
         settings = self.daqState.voltageSettings = dict()
@@ -353,7 +353,7 @@ class HxCmd(object):
 
     def getRefCal(self, cmd, doFinish=True):
         """Sample the ASIC refence offset and gain. """
-        
+
         if self.backend != 'hxhal' or self.controller is None:
             cmd.fail('text="No hxhal controller"')
             return
@@ -368,10 +368,10 @@ class HxCmd(object):
 
         cmdFunc = cmd.finish if doFinish else cmd.inform
         cmdFunc(f'text=" offset={aduOffset:#04x}/{aduOffset}; ADU/V={aduPerVolt} uV/ADU={1e6/aduPerVolt:0.1f}"')
-        
+
     def getAsicReg(self, cmd):
         """Read ASIC register(s). """
-        
+
         if self.backend != 'hxhal' or self.controller is None:
             cmd.fail('text="No hxhal controller"')
             return
@@ -379,7 +379,7 @@ class HxCmd(object):
         cmdKeys = cmd.cmd.keywords
         regnum = cmdKeys['reg'].values[0]
         nreg = cmdKeys['nreg'].values[0] if 'nreg' in cmdKeys else 1
-        
+
         sam = self.sam
 
         try:
@@ -392,9 +392,9 @@ class HxCmd(object):
             reg = regnum + i
             val = sam.link.ReadAsicReg(reg)
             cmd.inform('text="0x%04x = 0x%04x"' % (reg, val))
-            
+
         cmd.finish()
-        
+
     def writeAsicReg(self, cmd):
         """Write single ASIC register. """
 
@@ -429,7 +429,7 @@ class HxCmd(object):
 
     def getSamReg(self, cmd):
         """Read SAM/Jade register(s). """
-        
+
         if self.backend != 'hxhal' or self.controller is None:
             cmd.fail('text="No hxhal controller"')
             return
@@ -437,7 +437,7 @@ class HxCmd(object):
         cmdKeys = cmd.cmd.keywords
         regnum = cmdKeys['reg'].values[0]
         nreg = cmdKeys['nreg'].values[0] if 'nreg' in cmdKeys else 1
-        
+
         sam = self.sam
 
         try:
@@ -450,12 +450,12 @@ class HxCmd(object):
             reg = regnum + i
             val = sam.link.ReadJadeReg(reg)
             cmd.inform('text="0x%04x = 0x%04x"' % (reg, val))
-            
+
         cmd.finish()
-        
+
     def hxRaw(self, cmd):
         """ Tunnel a rawCmd command to the HX program. """
-        
+
         cmdKeys = cmd.cmd.keywords
         ctrl = self.controller
 
@@ -476,7 +476,7 @@ class HxCmd(object):
             return frameTime * (2 + self.rampConfig['nreset'])
         else:
             raise RuntimeError("unknown expType %s" % (expType))
-        
+
     def flushProgramInput(self, cmd, doFinish=True):
         debris = ''
         while True:
@@ -490,7 +490,7 @@ class HxCmd(object):
 
         if debris != '':
             cmd.warn('text="flushed stray input: %r"' % (debris))
-            
+
         if doFinish:
             cmd.finish()
 
@@ -500,13 +500,13 @@ class HxCmd(object):
         itime = self.calcFrameTime()
         if exptype.lower() == 'nohdr':
             return pyfits.Header()
-        
+
         headerTask = subaru.FetchHeader(fullHeader=True, frameId=frameId, itime=itime, exptype=exptype)
         self.logger.debug('text="starting header task timeout=%s frameId=%s"' % (timeout, frameId))
         headerTask.start()
         headerQ = headerTask.q
         self.logger.info('text="header q: %s"' % (headerQ))
-        
+
         try:
             hdrString = headerQ.get(True, timeout)
             if hdrString is None:
@@ -522,7 +522,7 @@ class HxCmd(object):
             time.sleep(0.1)
 
         hdr = pyfits.Header.fromstring(hdrString)
-        
+
         return hdr
 
     def getHeader(self, frameId, fullHeader=True,
@@ -541,28 +541,28 @@ class HxCmd(object):
         hxCards = self.getHxCards(cmd)
         for c in hxCards:
             hdr.append(c)
-        
+
         scexaoCards = self.getSCExAOCards(cmd)
         for c in scexaoCards:
             hdr.append(c)
-        
+
         charisCards = self.getCharisCards(cmd)
         for c in charisCards:
             hdr.append(c)
-        
+
         return hdr
 
     def getHxCards(self, cmd=None):
         # voltageList = self.controller.getAllBiasVoltages
         return []
-    
+
     def XXgetVoltages(self, cmd):
         ret = self.sam.getBiasVoltages()
         for nv in ret:
             name, voltage = nv
             cmd.inform('%s=%0.3f' % (name, voltage))
         cmd.finish()
-    
+
     def getSpiRegisters(self, cmd):
         h4Regs = self.sam.readAllH4SpiRegs()
         for i, reg in enumerate(h4Regs):
@@ -572,27 +572,27 @@ class HxCmd(object):
     def resetAsic(self, cmd):
         self.sam.resetAsic()
         self.getAsicErrors(cmd)
-    
+
     def powerOffAsic(self, cmd):
         self.sam.powerDownAsic()
         self.getAsicErrors(cmd)
-    
+
     def powerOnAsic(self, cmd):
         self.sam.initAsics()
         self.getAsicErrors(cmd)
 
     def writeSpiRegister(self, cmd):
         pass
-    
+
     def getAsicErrors(self, cmd):
         errorMask = self.sam.getAsicErrors()
         cmd.inform(f'asicErrors=0x%08x' % (errorMask))
         cmd.finish()
-    
+
     def getTelemetry(self, cmd):
         volts, amps, labels = self.sam.telemetry()
         cmd.finish('text="see log for telemetry"')
-    
+
     def getAsicPower(self, cmd):
         V,A,W = self.sam.printAsicPower()
 
@@ -612,9 +612,9 @@ class HxCmd(object):
                                                                             W[meas_i]/1000.0))
                 bankPower += W[meas_i]
             cmd.inform('text="bank %d total: %0.3fW"' % (bank_i, bankPower/1000.0))
-        
+
         cmd.finish('text="see log for telemetry"')
-        
+
     def lamp(self, lamp, lampPower, cmd):
         if self.actor.ids.camName != 'n8':
             return
@@ -640,7 +640,7 @@ class HxCmd(object):
 
         self.lampCards.append(dict(name='W_OLLAMP', value=lamp, comment='Optics lab lamp'))
         self.lampCards.append(dict(name='W_OLLPLV', value=lampPower, comment='Optics lab lamp command level'))
-        
+
     def getLastLampState(self, lamp, lampPower, cmd):
         self.lampCards = []
         if self.actor.ids.camName != 'n8':
@@ -654,7 +654,7 @@ class HxCmd(object):
         except Exception:
             cmd.warn('text="failed to get lamp info for optics lab"')
             return
-        
+
         cmd.inform('text="lamp %s=%s %s %s %s"' % (lamp, lampPower,
                                                    current, lam, flux))
         self.hxCards.append(dict(name='W_OLLAMP', value=lamp, comment='Optics lab lamp'))
@@ -664,9 +664,9 @@ class HxCmd(object):
         self.hxCards.append(dict(name='W_OLFLUX', value=flux, comment='[photons/s] Calibrated flux'))
 
     def takeRamp(self, cmd):
-        """Main exposure entry point. 
+        """Main exposure entry point.
         """
-        
+
         cmdKeys = cmd.cmd.keywords
 
         nramp = cmdKeys['nramp'].values[0] if ('nramp' in cmdKeys) else 1
@@ -687,7 +687,7 @@ class HxCmd(object):
         if readoutSize is not None:
             cmd.warn(f'text="overriding readout size to rows={readoutSize[0]}, cols={readoutSize[1]}"')
         self.lamp(0, 0, cmd)
-        
+
         cmd.diag('text="ramps=%s resets=%s reads=%s rdrops=%s rgroups=%s itime=%s seqno=%s exptype=%s"' %
                  (nramp, nreset, nread, ndrop, ngroup, itime, seqno, exptype))
 
@@ -696,14 +696,14 @@ class HxCmd(object):
                 cmd.fail('text="cannot specify both nread= and itime="')
                 return
             nread = int(itime / self.sam.frameTime) + 1
-        
+
         dosplit = 'splitRamps' in cmdKeys
         nrampCmds = nramp if dosplit else 1
 
         if nread <= 0 or nramp <= 0 or ngroup <= 0:
             cmd.fail('text="all of nramp,ngroup,(nread or itime) must be positive"')
             return
-        
+
         cmd.inform('text="configuring ramp..."')
         cmd.inform('ramp=%d,%d,%d,%d,%d' % (nramp,ngroup,nreset,nread,ndrop))
 
@@ -831,7 +831,7 @@ class HxCmd(object):
                     time.sleep(0.5)
         else:
             self.flushProgramInput(cmd, doFinish=False)
-        
+
             ctrlr = self.controller
             ret = ctrlr.sendOneCommand('setRampParam(%d,%d,%d,%d,%d)' %
                                        (nreset,nread,ngroup,ndrop,(1 if dosplit else nramp)),
@@ -839,14 +839,14 @@ class HxCmd(object):
             if ret != '0:succeeded':
                 cmd.fail('text="failed to configure for ramp: %s"' % (ret))
                 return
-        
+
             self.winGetconfig(cmd, doFinish=False)
 
             timeout = self._calcAcquireTimeout(expType='ramp')
             if not dosplit:
                 timeout *= nramp
             timeout += 10
-        
+
             t0 = time.time()
             for r_i in range(nrampCmds):
                 cmd.inform('text="acquireramp command %d of %d"' % (r_i+1, nrampCmds))
@@ -855,27 +855,39 @@ class HxCmd(object):
                                      timeout=timeout,
                                      noResponse=True)
                 self._consumeRamps((1 if dosplit else nramp),
-                                  ngroup,nreset,nread,ndrop,
-                                  cmd=cmd)
+                                   ngroup,nreset,nread,ndrop,
+                                   cmd=cmd)
                 ret = ctrlr.getOneResponse(cmd=cmd)
                 if ret != '0:Ramp acquisition succeeded':
                     cmd.fail('text="IDL gave unexpected response at end of ramp: %s"' % (ret))
                     return
-                
+
         t1 = time.time()
         dt = t1-t0
         cmd.finish('text="%d ramps, elapsed=%0.3f, perRamp=%0.3f, perRead=%0.3f"' %
                    (nramp, dt, dt/nramp, dt/(nramp*(nread+nreset+ndrop))))
-            
+
     def _getMhsHeader(self, cmd):
-        """ Gather FITS cards from all actors we are interested in. """
+        """ Gather FITS cards from all other actors we are interested in. """
 
         cmd.debug('text="fetching MHS cards..."')
-        cards = fitsUtils.gatherHeaderCards(cmd, self.actor, shortNames=True)
+        models = set(self.actor.models.keys())
+        models = sorted(models - {self.actor.name})
+        cards = fitsUtils.gatherHeaderCards(cmd, self.actor, modelNames=models, shortNames=True)
         cmd.debug('text="fetched %d MHS cards..."' % (len(cards)))
 
         return cards
-    
+
+    def _getH4MhsHeader(self, cmd):
+        """ Gather FITS cards from ourself. """
+
+        cmd.debug(f'text="fetching {self.actor.name} MHS cards..."')
+        models = {self.actor.name}
+        cards = fitsUtils.gatherHeaderCards(cmd, self.actor, modelNames=models, shortNames=True)
+        cmd.debug('text="fetched %d MHS cards..."' % (len(cards)))
+
+        return cards
+
     def _getHxHeader(self, cmd):
         """ Gather FITS cards from ourselves. """
 
@@ -1027,12 +1039,12 @@ class HxCmd(object):
         allCards.extend(hxCards)
 
         return allCards
-    
-        
+
+
     def reloadLogic(self, cmd):
         self.sam.reloadLogic()
         cmd.finish()
-        
+
     def setReadSpeed(self, cmd):
         cmdKeys = cmd.cmd.keywords
 
