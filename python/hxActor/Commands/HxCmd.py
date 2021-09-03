@@ -141,10 +141,9 @@ class HxCmd(object):
             self.dataRoot = "/data/pfsx"
             self.dataPrefix = "PFJA"
 
-            # We want the fits writing processes to be persistent, mostly so that
-            # we do not have to pay attention to when they finish.
+            # We want the fits writing process to be persistent, mostly so that
+            # we do not have to pay attention to when it finishes.
             self.rampBuffer = fitsWriter.FitsBuffer()
-            self.cdsBuffer = fitsWriter.FitsBuffer()
 
             def filenameFunc(dataRoot, seqno):
                 """ Return a pair of filenames, one for the ramp, one for the single stack image. """
@@ -721,10 +720,9 @@ class HxCmd(object):
                 if nramp != 1:
                     raise ValueError("PFS can only take one ramp at a time")
 
-                cdsFilename, rampFilename = self.fileGenerator.getNextFileset(seqno=seqno)
+                _, rampFilename = self.fileGenerator.getNextFileset(seqno=seqno)
 
                 rampReporter = ramp.Ramp(cmd)
-                cdsReporter = ramp.Ramp(cmd, reportReads=False)
                 # self.grabAllH4Info(cmd, doFinish=False)
                 self.startLampCards(lamp, lampPower)
                 self.setHxCards(0, 0, 0, doClear=True)
@@ -766,7 +764,6 @@ class HxCmd(object):
                         phdr = self.getPfsHeader(seqno=seqno, exptype=exptype, cmd=cmd)
                         self.logger.info(f'filename={filename}')
                         self.rampBuffer.createFile(rampReporter, rampFilename, phdr)
-                        self.cdsBuffer.createFile(cdsReporter, cdsFilename, phdr)
                     else:
                         if read == nread-1:
                             self.getLastLampState(lamp, lampPower, cmd)
@@ -783,16 +780,7 @@ class HxCmd(object):
                             self.rampBuffer.addHdu(ref, None, hduId=(ramp, group, None),
                                                    extname=f'REF_{read}')
                     if read == nread:
-                        cmd.inform(f'text="flushing CDS file, after {read}/{nread} reads"')
-                        if ref is None or ref.size != data.size:
-                            diff = data.astype('f4')
-                        else:
-                            diff = data.astype('f4')-ref
-                        self.cdsBuffer.addHdu(diff, None,
-                                              hduId=(ramp, group, read),
-                                              extname=f'IMAGE')
                         self.rampBuffer.finishFile()
-                        self.cdsBuffer.finishFile()
                         if lampPower != 0:
                             self.lamp(0, 0, cmd)
             else:
@@ -829,7 +817,7 @@ class HxCmd(object):
                 waitFor = 60
                 waitUntil = time.time() + waitFor
                 while True:
-                    if rampReporter.isFinished and cdsReporter.isFinished:
+                    if rampReporter.isFinished:
                         break
                     now = time.time()
                     if now > waitUntil:
