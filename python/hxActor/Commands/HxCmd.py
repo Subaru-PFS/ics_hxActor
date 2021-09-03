@@ -465,7 +465,7 @@ class HxCmd(object):
     def _calcAcquireTimeout(self, expType='ramp', cmd=None):
         """ Return the best estimate of the actual expected time for our current rampConfig. """
 
-        frameTime = self.sam.frameTime
+        frameTime = self.calcFrameTime()
         if expType == 'ramp':
             return frameTime * (self.rampConfig['nread'] +
                                 self.rampConfig['nreset'] +
@@ -497,7 +497,7 @@ class HxCmd(object):
     def getSubaruHeader(self, frameId, timeout=1.0,
                         fullHeader=True, exptype='TEST', cmd=None):
 
-        itime = self.sam.frameTime
+        itime = self.calcFrameTime()
         if exptype.lower() == 'nohdr':
             return pyfits.Header()
         
@@ -908,6 +908,42 @@ class HxCmd(object):
         if doFinish:
             cmd.finish()
 
+    def calcFrameTime(self):
+        """Calculate the net time to readout a single read/frame.
+
+        We cheat slightly, but should fix that. Basically, there are
+        two ASIC registers which give the number of pixel times per
+        row and the number of row times per read. The IRP firmware
+        always pads the row times by 9 pixels, and I am pulling that
+        out rather than calculating it on the fly. But we do believe
+        the timings using that, for all number of channels and (I
+        think) all IRP ratios.
+
+        """
+
+        cfg = self.daqState.hxConfig
+
+        frameSize, _ = self.sam.calcFrameSize()
+        width, height = frameSize
+        if cfg.h4Interleaving and cfg.interleaveRatio > 1:
+            irpFactor = (1 + (1//cfg.interleaveRatio))
+        else:
+            irpFactor = 1
+
+        pixTime = cfg.pixelTime
+        chanWidth = width*irpFactor//cfg.numOutputs
+
+        # Get this correctly, with h4008 - 4096/cfg.numOutputs (137 - 128 for 32 channels)
+        rowPad = 9
+
+        # And h4009:
+        framePad = 1
+
+        frameTime = pixTime*(chanWidth + rowPad) * (height + framePad)
+        self.logger.info(f'calcFrameTime: {frameTime} pixTime={pixTime} frameSize={frameSize} '
+                         f'irpFactor={irpFactor} chanWidth={chanWidth}')
+        return frameTime
+
     def genAllH4Cards(self, cmd):
         """Return the H4 cards for the PHDU. Consumes what .grabAllH4Info() gathered
         """
@@ -970,8 +1006,11 @@ class HxCmd(object):
 
         if fullHeader:
             fullRampTime = actortime.TimeCards()
-            fullRampTime.end(expTime=self.nread*self.sam.frameTime)
+            frameTime = self.calcFrameTime()
+            expTime = self.nread*frameTime
+            fullRampTime.end(expTime=expTime)
             timecards = fullRampTime.getCards()
+            timecards.append(dict(name='EXPTIME', value=expTime))
             allCards.extend(timecards)
 
             hxCards = self.genAllH4Cards(cmd)
