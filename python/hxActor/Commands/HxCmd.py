@@ -41,7 +41,7 @@ class HxCmd(object):
         self.vocab = [
             ('hx', '@raw', self.hxRaw),
             ('bounce', '', self.bounce),
-            ('reconnect', '[<firmwareFile>] [<configName>]', self.reconnect),
+            ('reconnect', '[<firmwareFile>] [<configName>] [@bouncePower]', self.reconnect),
             ('hxconfig',
              '[<configName>] [<interleaveRatio>] [<interleaveOffset>] [<preampGain>] [<numOutputs>]',
              self.hxconfig),
@@ -129,7 +129,7 @@ class HxCmd(object):
             self.dataPrefix = "CRSA"
             filenameFunc = None
         else:
-            self.dataRoot = "/data/pfsx"
+            self.dataRoot = "/data/ramps"
             self.dataPrefix = "PFJA"
 
             # We want the fits writing process to be persistent, mostly so that
@@ -162,17 +162,22 @@ class HxCmd(object):
         self.controller.disconnect()
 
     def reconnect(self, cmd, doFinish=True):
-        """Reboot and reconfigure ASIC. """
+        """Reconnect to SAM and ASIC. Optionally power-cycle and/or reload ASIC firmware and reconfigure.
+
+        If 'bouncePower' is True, then always load firmware, etc.
+        """
 
         cmdKeys = cmd.cmd.keywords
         firmwareFile = cmdKeys['firmwareFile'].values[0] if 'firmwareFile' in cmdKeys else None
         configName = cmdKeys['configName'].values[0] if 'configName' in cmdKeys else None
+        bouncePower = 'bouncePower' in cmdKeys
 
         if self.backend != 'hxhal' or self.controller is None:
             cmd.fail('text="No hxhal controller"')
             return
 
-        self.controller.reconnect(firmwareName=firmwareFile, configName=configName, cmd=cmd)
+        self.controller.reconnect(bouncePower=bouncePower,
+                                  firmwareName=firmwareFile, configName=configName, cmd=cmd)
         self.getHxConfig(cmd=cmd, doFinish=doFinish)
 
     def hxconfig(self, cmd, doFinish=True):
