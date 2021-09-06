@@ -24,13 +24,6 @@ reload(fitsWriter)
 reload(hxramp)
 reload(ramp)
 
-class DaqState(object):
-    def __init__(self):
-        self.isValid = False
-        self.hxConfig = dict()
-        self.spiRegisters = dict()
-        self.voltageSettings = dict()
-        self.voltageReadings = dict()
 
 class HxCmd(object):
 
@@ -48,7 +41,7 @@ class HxCmd(object):
         self.vocab = [
             ('hx', '@raw', self.hxRaw),
             ('bounce', '', self.bounce),
-            ('reconnect', '[<firmwareFile>] [<configName>]', self.reconnect),
+            ('reconnect', '[<firmwareFile>] [<configName>] [@bouncePower]', self.reconnect),
             ('hxconfig',
              '[<configName>] [<interleaveRatio>] [<interleaveOffset>] [<preampGain>] [<numOutputs>]',
              self.hxconfig),
@@ -131,14 +124,12 @@ class HxCmd(object):
         self.backend = 'hxhal'
         self.rampConfig = None
 
-        self.daqState = DaqState()
-
         if self.actor.instrument == "CHARIS":
             self.dataRoot = "/home/data/charis"
             self.dataPrefix = "CRSA"
             filenameFunc = None
         else:
-            self.dataRoot = "/data/pfsx"
+            self.dataRoot = "/data/ramps"
             self.dataPrefix = "PFJA"
 
             # We want the fits writing process to be persistent, mostly so that
@@ -171,17 +162,22 @@ class HxCmd(object):
         self.controller.disconnect()
 
     def reconnect(self, cmd, doFinish=True):
-        """Reboot and reconfigure ASIC. """
+        """Reconnect to SAM and ASIC. Optionally power-cycle and/or reload ASIC firmware and reconfigure.
+
+        If 'bouncePower' is True, then always load firmware, etc.
+        """
 
         cmdKeys = cmd.cmd.keywords
         firmwareFile = cmdKeys['firmwareFile'].values[0] if 'firmwareFile' in cmdKeys else None
         configName = cmdKeys['configName'].values[0] if 'configName' in cmdKeys else None
+        bouncePower = 'bouncePower' in cmdKeys
 
         if self.backend != 'hxhal' or self.controller is None:
             cmd.fail('text="No hxhal controller"')
             return
 
-        self.controller.reconnect(firmwareName=firmwareFile, configName=configName, cmd=cmd)
+        self.controller.reconnect(bouncePower=bouncePower,
+                                  firmwareName=firmwareFile, configName=configName, cmd=cmd)
         self.getHxConfig(cmd=cmd, doFinish=doFinish)
 
     def hxconfig(self, cmd, doFinish=True):
@@ -244,12 +240,12 @@ class HxCmd(object):
     def updateDaqState(self, cmd, always=False):
         """Make sure our snapshot of the ASIC config is valid. """
 
-        if always or not self.daqState.isValid:
+        if always or not self.controller.daqState.isValid:
             self.getHxConfig(cmd, doFinish=False)
 
     def getHxConfig(self, cmd, doFinish=True):
         self.grabAllH4Info(cmd, doFinish=False)
-        cfg = self.daqState.hxConfig
+        cfg = self.controller.daqState.hxConfig
 
         keys = []
         if not cfg.h4Interleaving:
@@ -288,23 +284,8 @@ class HxCmd(object):
             cmd.fail('text="Failed to set voltage %s=%s: %s"' % (voltageName,
                                                                  voltage,
                                                                  e))
+        self.sampleVoltage(cmd=cmd, doFinish=False)
         cmd.finish(f'text="set {voltageName} to {newVoltage:.3f}"')
-
-    def _sampleVoltage(self, cmd, voltageName, doFinish=True):
-        sam = self.sam
-
-        try:
-            volt, raw = sam.sampleVoltage(voltageName)
-        except Exception as e:
-            cmd.fail('text="Failed to sample voltage %s: %s"' % (voltageName,
-                                                                 e))
-            return
-
-        setting = sam.getBiasVoltage(voltageName)
-
-        cmdFunc = cmd.finish if doFinish else cmd.inform
-        cmdFunc(f'text="{voltageName:12s} = {volt: .3f} set {setting: .3f}, raw {raw:#04x}"')
-        return voltageName, volt
 
     def sampleVoltage(self, cmd, doFinish=True):
         """Sample a single Hx bias voltage. """
@@ -315,23 +296,25 @@ class HxCmd(object):
 
         cmdKeys = cmd.cmd.keywords
         voltageName = str(cmdKeys['name'].values[0])
+        setting, reading, raw = self.controller.sampleVoltage(voltageName)
 
-        self._sampleVoltage(cmd, voltageName, doFinish=doFinish)
+        cmdFunc = cmd.finish if doFinish else cmd.inform
+        cmdFunc(f'text="{voltageName:12s} = {reading: .3f} set {setting: .3f}, raw {raw:#04x}"')
 
     def getVoltages(self, cmd):
-        sam = self.sam
-
         self.getRefCal(cmd, doFinish=False)
-        for vname in sam.voltageNames:
-            self._sampleVoltage(cmd, vname, doFinish=False)
+        for voltageName in self.sam.voltageNames:
+            setting, reading, raw = self.controller.sampleVoltage(voltageName)
+            cmd.inform(f'text="{voltageName:12s} = {reading: .3f} set {setting: .3f}, raw {raw:#04x}"')
 
         cmd.finish()
 
     def getVoltageSettings(self, cmd, doFinish=True):
-        vlist = self.sam.getBiasVoltages()
-        settings = self.daqState.voltageSettings = dict()
-        for name, setting in vlist:
-            settings[name] = setting
+        """Query for and report all bias voltage settings. """
+
+        settings = self.controller.getVoltageSettings()
+
+        for name, setting in settings.items():
             cmd.inform(f'text="{name:12s} = {setting: .3f}"')
         if doFinish:
             cmd.finish()
@@ -340,12 +323,11 @@ class HxCmd(object):
         cmdKeys = cmd.cmd.keywords
         doRef = 'doRef' in cmdKeys
 
-        if doRef:
-            self.getRefCal(cmd, doFinish=False)
-        readings = self.daqState.voltageReadings = dict()
-        for vname in ('VReset', 'DSub', 'VBiasGate', 'Vrefmain'):
-            name, reading = self._sampleVoltage(cmd, vname, doFinish=False)
-            readings[name] = reading
+        ret = self.controller.getMainVoltages(doRef=doRef)
+        cmdFunc = cmd.finish if doFinish else cmd.inform
+        for voltageName in ret.keys():
+            setting, reading, raw = ret[voltageName]
+            cmdFunc(f'text="{voltageName:12s} = {reading: .3f} set {setting: .3f}, raw {raw:#04x}"')
 
         if doFinish:
             cmd.finish()
@@ -357,16 +339,11 @@ class HxCmd(object):
             cmd.fail('text="No hxhal controller"')
             return
 
-        sam = self.sam
-        sam._buildVoltageTable()
-
-        try:
-            aduPerVolt, aduOffset = sam.calibrateRefOffsetAndGain()
-        except Exception as e:
-            cmd.fail('text="Failed to fetch reference calibration %s"' % (e))
+        aduPerVolt, aduOffset = self.sam.calibrateRefOffsetAndGain()
 
         cmdFunc = cmd.finish if doFinish else cmd.inform
-        cmdFunc(f'text=" offset={aduOffset:#04x}/{aduOffset}; ADU/V={aduPerVolt} uV/ADU={1e6/aduPerVolt:0.1f}"')
+        cmdFunc(f'text=" offset={aduOffset:#04x}/{aduOffset}; '
+                f'ADU/V={aduPerVolt} uV/ADU={1e6/aduPerVolt:0.1f}"')
 
     def getAsicReg(self, cmd):
         """Read ASIC register(s). """
@@ -554,13 +531,6 @@ class HxCmd(object):
     def getHxCards(self, cmd=None):
         # voltageList = self.controller.getAllBiasVoltages
         return []
-
-    def XXgetVoltages(self, cmd):
-        ret = self.sam.getBiasVoltages()
-        for nv in ret:
-            name, voltage = nv
-            cmd.inform('%s=%0.3f' % (name, voltage))
-        cmd.finish()
 
     def getSpiRegisters(self, cmd):
         h4Regs = self.sam.readAllH4SpiRegs()
@@ -906,11 +876,11 @@ class HxCmd(object):
         - _some_ ASCI voltage readings.
 
         """
-        self.daqState.hxConfig = self.sam.hxrgDetectorConfig.copy()
-        self.daqState.spiRegisters = self.sam.readAllH4SpiRegs()
+
+        self.controller.grabAllH4Info()
         self.getVoltageSettings(cmd, doFinish=False)
         self.getMainVoltages(cmd, doFinish=False)
-        self.daqState.isValid =  True
+        self.controller.daqState.isValid =  True
 
         if doFinish:
             cmd.finish()
@@ -928,17 +898,13 @@ class HxCmd(object):
 
         """
 
-        cfg = self.daqState.hxConfig
+        cfg = self.controller.daqState.hxConfig
 
         frameSize, _ = self.sam.calcFrameSize()
         width, height = frameSize
-        if cfg.h4Interleaving and cfg.interleaveRatio > 1:
-            irpFactor = (1 + (1//cfg.interleaveRatio))
-        else:
-            irpFactor = 1
 
         pixTime = cfg.pixelTime
-        chanWidth = width*irpFactor//cfg.numOutputs
+        chanWidth = width//cfg.numOutputs
 
         # Get this correctly, with h4008 - 4096/cfg.numOutputs (137 - 128 for 32 channels)
         rowPad = 9
@@ -948,7 +914,7 @@ class HxCmd(object):
 
         frameTime = pixTime*(chanWidth + rowPad) * (height + framePad)
         self.logger.info(f'calcFrameTime: {frameTime} pixTime={pixTime} frameSize={frameSize} '
-                         f'irpFactor={irpFactor} chanWidth={chanWidth}')
+                         f'chanWidth={chanWidth}')
         return frameTime
 
     def genAllH4Cards(self, cmd):
@@ -968,15 +934,17 @@ class HxCmd(object):
         # *Start* with the MHS dictionary cards, then overwrite what we know better about.
         cards = self._getH4MhsHeader(cmd)
 
-        for i, reg in enumerate(self.daqState.spiRegisters):
+        daqState = self.controller.daqState
+
+        for i, reg in enumerate(self.controller.daqState.spiRegisters):
             cards.append(dict(name=f'W_4SPI{i+1:02d}', value=reg, comment=f'H4 SPI register {i+1}'))
-        for name, setting in self.daqState.voltageSettings.items():
+        for name, setting in daqState.voltageSettings.items():
             cardName = voltageCardNames.get(name)
             if cardName is None:
                 continue
             cards.append(dict(name=f'{cardName}S', value=np.round(setting, 4), comment=f'[V] {name} setting'))
 
-        for name, reading in self.daqState.voltageReadings.items():
+        for name, reading in daqState.voltageReadings.items():
             cardName = voltageCardNames.get(name)
             if cardName is None:
                 continue
@@ -989,7 +957,7 @@ class HxCmd(object):
                     break
             cards.append(newCard)
 
-        cfg = self.daqState.hxConfig
+        cfg = daqState.hxConfig
         frameTime = self.calcFrameTime()
         _replaceCard(cards, dict(name="W_FRMTIM", value=frameTime,
                                  comment='[s] individual read time, per ASIC'))
