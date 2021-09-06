@@ -149,6 +149,8 @@ class HxCmd(object):
                                                       namesFunc = filenameFunc,
                                                       filePrefix=self.dataPrefix)
 
+        self.everRun = False
+
     @property
     def controller(self):
         return self.actor.controllers.get(self.backend, None)
@@ -256,6 +258,11 @@ class HxCmd(object):
         keys.append(f'preamp={cfg.preampGain},{gainFactor},{cfg.preampInputScheme},{cfg.preampInput},'
                     f'{cfg.preampInput1ByUser},{cfg.preampInput8ByUser}')
         keys.append(f'window={cfg.bWindowMode},{cfg.xStart},{cfg.xStop},{cfg.yStart},{cfg.yStop}')
+
+        try:
+            keys.append(f'asicVersion={cfg.version}')
+        except KeyError:
+            keys.append(f'asicVersion=UNKNOWN')
 
         for k in keys:
             cmd.inform(k)
@@ -674,6 +681,14 @@ class HxCmd(object):
             return
 
         cmd.inform('text="configuring ramp..."')
+        self.nread = nread
+
+        if not self.everRun:
+            cmd.debug('text="blowing astropy nose..."')
+            # import ipdb; ipdb.set_trace()
+            self.getTimeCards(cmd=cmd)
+            self.everRun = True
+
         cmd.inform('ramp=%d,%d,%d,%d,%d' % (nramp,ngroup,nreset,nread,ndrop))
 
         self.updateDaqState(cmd, always=False)
@@ -768,7 +783,6 @@ class HxCmd(object):
                 def headerCB(ramp, group, read, seqno):
                     hdr = self.getCharisHeader(seqno=seqno, fullHeader=(read == 1), cmd=cmd)
                     return hdr.cards
-            self.nread = nread
             sam.takeRamp(nResets=nreset, nReads=nread,
                          noReturn=True, nRamps=nramp,
                          seqno=seqno, exptype=exptype,
@@ -835,11 +849,15 @@ class HxCmd(object):
     def _getMhsHeader(self, cmd):
         """ Gather FITS cards from all other actors we are interested in. """
 
+        t0 = time.time()
         cmd.debug('text="fetching MHS cards..."')
         models = set(self.actor.models.keys())
         models = sorted(models - {self.actor.name})
         cards = fitsUtils.gatherHeaderCards(cmd, self.actor, modelNames=models, shortNames=True)
         cmd.debug('text="fetched %d MHS cards..."' % (len(cards)))
+        t1 =  time.time()
+        if t1 - t0 > 1:
+            cmd.warn(f'text="it took {t1-t0:0.2f} seconds to fetch MHS cards!"')
 
         return cards
 
@@ -974,6 +992,16 @@ class HxCmd(object):
                                  comment='the ASIC preamp gain setting'))
         _replaceCard(cards, dict(name='W_H4GAIN', value=self.sam.getGainFromTable(cfg.preampGain),
                                  comment='the ASIC preamp gain factor'))
+        _replaceCard(cards, dict(name='W_H4GAIN', value=self.sam.getGainFromTable(cfg.preampGain),
+                                 comment='the ASIC preamp gain factor'))
+
+        try:
+            ver = self.sam.instrumentTweaks.formatVersion
+        except:
+            cmd.warn('text="No defined H4 ramp format version, using 0"')
+            ver = 0
+        _replaceCard(cards, dict(name='W_4FMTVR', value=ver,
+                                 comment='Data format version'))
 
         return cards
 
@@ -984,6 +1012,20 @@ class HxCmd(object):
 
         return allCards
 
+    def getTimeCards(self, cmd):
+        t0 = time.time()
+        fullRampTime = actortime.TimeCards()
+        frameTime = self.calcFrameTime()
+        expTime = self.nread*frameTime
+        fullRampTime.end(expTime=expTime)
+        timecards = fullRampTime.getCards()
+        timecards.append(dict(name='EXPTIME', value=expTime))
+
+        t1 = time.time()
+        if t1 - t0 > 1:
+            cmd.warn(f'text="it took {t1-t0:0.2f} seconds to fetch time cards!"')
+        return timecards
+
     def getPfsHeader(self, seqno=None,
                      exptype='TEST',
                      fullHeader=True, cmd=None):
@@ -992,13 +1034,8 @@ class HxCmd(object):
         allCards.append(dict(name='DATA-TYP', value=exptype.upper(), comment='Subaru-style exposure type'))
 
         if fullHeader:
-            fullRampTime = actortime.TimeCards()
-            frameTime = self.calcFrameTime()
-            expTime = self.nread*frameTime
-            fullRampTime.end(expTime=expTime)
-            timecards = fullRampTime.getCards()
-            timecards.append(dict(name='EXPTIME', value=expTime))
-            allCards.extend(timecards)
+            timeCards = self.getTimeCards(cmd=cmd)
+            allCards.extend(timeCards)
 
             hxCards = self.genAllH4Cards(cmd)
             allCards.extend(hxCards)
