@@ -43,7 +43,8 @@ class HxCmd(object):
             ('bounce', '', self.bounce),
             ('reconnect', '[<firmwareFile>] [<configName>] [@bouncePower]', self.reconnect),
             ('hxconfig',
-             '[<configName>] [<interleaveRatio>] [<interleaveOffset>] [<preampGain>] [<numOutputs>]',
+             '[<configName>] [<interleaveRatio>] [<interleaveOffset>] [<preampGain>] [<numOutputs>] '
+             '[<idleModeOption>]',
              self.hxconfig),
             ('reconfigAsic', '', self.reconfigAsic),
             ('getVoltage', '<name>', self.sampleVoltage),
@@ -119,6 +120,8 @@ class HxCmd(object):
                                                  help="the index of the preamp gain setting."),
                                         keys.Key("numOutputs", types.Int(),
                                                  help="the number of channels to read H4 with. 1,4,16,32."),
+                                        keys.Key("idleModeOption", types.Int(),
+                                                 help="what to do while idle: 0=nothing, 1=reset, 2=reset+read"),
                                         )
 
         self.backend = 'hxhal'
@@ -210,6 +213,12 @@ class HxCmd(object):
             if interleaveOffset < 0 or interleaveOffset > 8:
                 cmd.fail('text="invalid interleave ratio={interleaveOffset}. Must be 0..8"')
             tweaks['interleaveOffset'] = interleaveOffset
+
+        if 'idleModeOption' in cmdKeys:
+            idleModeOption = cmdKeys['idleModeOption'].values[0]
+            if idleModeOption < 0 or idleModeOption > 2:
+                cmd.fail('text="invalid idle mode action={idleModeOption}. Must be 0..2"')
+            tweaks['idleModeOption'] = idleModeOption
 
         if self.backend != 'hxhal' or self.controller is None:
             cmd.fail('text="No hxhal controller"')
@@ -657,8 +666,13 @@ class HxCmd(object):
         lamp = cmdKeys['lamp'].values[0] if ('lamp' in cmdKeys) else 0
         lampPower = cmdKeys['lampPower'].values[0] if ('lampPower' in cmdKeys) else 0
         readoutSize = cmdKeys['readoutSize'].values if ('readoutSize' in cmdKeys) else None
+        idleModeOption = cmdKeys['idleModeOption'].values[0] if ('idleModeOption' in cmdKeys) else None
         outputReset = 'outputReset' in cmdKeys
         rawImage = 'rawImage' in cmdKeys
+
+        if idleModeOption is not None and (idleModeOption < 0 or idleModeOption > 2):
+            cmd.fail('text="idleModeOption must be 0..2"')
+            return
 
         if readoutSize is not None:
             cmd.warn(f'text="overriding readout size to rows={readoutSize[0]}, cols={readoutSize[1]}"')
