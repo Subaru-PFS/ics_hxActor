@@ -105,7 +105,7 @@ class HxCmd(object):
                                         keys.Key("lampPower", types.Int(), default=0,
                                                  help='lamp power (0..1023)xs'),
                                         keys.Key("readoutSize", types.Int()*2, default=0,
-                                                 help='actual rows,cols of readout'),
+                                                 help='actual cols,rows of readout'),
                                         keys.Key("reg", types.String(),
                                                  help='register number (hex or int)'),
                                         keys.Key("value", types.String(),
@@ -675,7 +675,7 @@ class HxCmd(object):
             return
 
         if readoutSize is not None:
-            cmd.warn(f'text="overriding readout size to rows={readoutSize[0]}, cols={readoutSize[1]}"')
+            cmd.warn(f'text="overriding readout size to cols={readoutSize[0]}, rows={readoutSize[1]}"')
         self.lamp(0, 0, cmd)
 
         cmd.diag('text="ramps=%s resets=%s reads=%s rdrops=%s rgroups=%s itime=%s seqno=%s exptype=%s"' %
