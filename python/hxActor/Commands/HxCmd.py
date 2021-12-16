@@ -191,25 +191,25 @@ class HxCmd(object):
         cmdKeys = cmd.cmd.keywords
         tweaks = dict()
         if 'numOutputs' in cmdKeys:
-            numChannel = cmdKeys['numOutputs']
+            numChannel = cmdKeys['numOutputs'].values[0]
             if numChannel not in {0,1,4,16,32}:
                 cmd.fail(f'text="invalid numOutputs={numChannel}. Must be 0,1,4,16,32"')
                 return
             tweaks['numOutputs'] = numChannel
         if 'preampGain' in cmdKeys:
-            preampGain = cmdKeys['preampGain']
+            preampGain = cmdKeys['preampGain'].values[0]
             if preampGain < 0 or preampGain > 15:
                 cmd.fail('text="invalid gain setting={preampGain}. Must be 0..15"')
             tweaks['preampGain'] = preampGain
 
         if 'interleaveRatio' in cmdKeys:
-            interleaveRatio = cmdKeys['interleaveRatio']
+            interleaveRatio = cmdKeys['interleaveRatio'].values[0]
             if interleaveRatio < 0 or interleaveRatio > 8:
                 cmd.fail('text="invalid interleave ratio={interleaveRatio}. Must be 0..8"')
             tweaks['interleaveRatio'] = interleaveRatio
 
         if 'interleaveOffset' in cmdKeys:
-            interleaveOffset = cmdKeys['interleaveOffset']
+            interleaveOffset = cmdKeys['interleaveOffset'].values[0]
             if interleaveOffset < 0 or interleaveOffset > 8:
                 cmd.fail('text="invalid interleave ratio={interleaveOffset}. Must be 0..8"')
             tweaks['interleaveOffset'] = interleaveOffset
@@ -698,7 +698,7 @@ class HxCmd(object):
         self.nread = nread
 
         if not self.everRun:
-            cmd.debug('text="blowing astropy nose..."')
+            cmd.inform('text="blowing astropy nose..."')
             # import ipdb; ipdb.set_trace()
             self.getTimeCards(cmd=cmd)
             self.everRun = True
@@ -772,7 +772,7 @@ class HxCmd(object):
                         else:
                             data, ref = hxramp.splitIRP(image, nChannel=nChannel, refPix=irpOffset)
                         hdr = self.getPfsHeader(seqno=seqno, exptype=exptype, fullHeader=False, cmd=cmd)
-                        cmd.inform(f'text="adding to ramp FITS file at group={group} read={read}"')
+                        cmd.inform(f'text="adding to ramp FITS file at group={group} read={read} shape={data.shape} med={np.median(data)}"')
                         self.rampBuffer.addHdu(data, hdr, hduId=(ramp, group, read),
                                                extname=f'IMAGE_{read}')
                         if ref is not None:
