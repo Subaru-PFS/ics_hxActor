@@ -70,6 +70,8 @@ class HxCmd(object):
             ('readSam', '<reg> [<nreg>]', self.getSamReg),
             ('setReadSpeed', '@(fast|slow) [@debug]', self.setReadSpeed),
             ('grabAllH4Info', '[@doRef]', self.grabAllH4Info),
+            ('clearRowSkipping', '', self.clearRowSkipping),
+            ('setRowSkipping', '<skipSequence>', self.setRowSkipping)
         ]
 
         # Define typed command arguments for the above commands.
@@ -122,6 +124,8 @@ class HxCmd(object):
                                                  help="the number of channels to read H4 with. 1,4,16,32."),
                                         keys.Key("idleModeOption", types.Int(),
                                                  help="what to do while idle: 0=nothing, 1=reset, 2=reset+read"),
+                                        keys.Key('skipSequence', types.Int()*5,
+                                                 help="read/skip/read/skip/total sequence for rowSkipping")
                                         )
 
         self.backend = 'hxhal'
@@ -133,19 +137,18 @@ class HxCmd(object):
             filenameFunc = None
         else:
             self.dataRoot = "/data/ramps"
-            self.dataPrefix = "PFJA"
+            self.dataPrefix = "PFJB"
 
             # We want the fits writing process to be persistent, mostly so that
             # we do not have to pay attention to when it finishes.
             self.rampBuffer = fitsWriter.FitsBuffer()
 
             def filenameFunc(dataRoot, seqno):
-                """ Return a pair of filenames, one for the ramp, one for the single stack image. """
+                """ Return the ramp filename """
 
                 # Write the full ramp
-                fileNameA = self.actor.ids.makeSpsFitsName(visit=seqno, fileType='A')
                 fileNameB = self.actor.ids.makeSpsFitsName(visit=seqno, fileType='B')
-                return os.path.join(dataRoot, fileNameA), os.path.join(dataRoot, fileNameB)
+                return None, os.path.join(dataRoot, fileNameB)
 
         from hxActor.charis import seqPath
         self.fileGenerator = seqPath.NightFilenameGen(self.dataRoot,
@@ -240,6 +243,44 @@ class HxCmd(object):
 
         if doFinish:
             cmd.finish()
+
+    def getRowSequence(self, cmd):
+        read1 = self.sam.link.ReadAsicReg(0x4300)
+        skip1 = self.sam.link.ReadAsicReg(0x4301)
+        read2 = self.sam.link.ReadAsicReg(0x4302)
+        skip2 = self.sam.link.ReadAsicReg(0x4303)
+        total = self.sam.link.ReadAsicReg(0x4034)
+
+        return read1,skip1,read2,skip2,total
+
+    def reportRowSequence(self, cmd):
+        read1,skip1,read2,skip2,total = self.getRowSequence(cmd)
+        cmd.finish(f'skipSequence={read1},{skip1},{read2},{skip2},{total}')
+
+    def setRowSkipping(self, cmd):
+        read1, skip1, read2, skip2, total = cmd.cmd.keywords['skipSequence'].values
+
+        self.sam.link.WriteAsicReg(0x4300, read1)
+        self.sam.link.WriteAsicReg(0x4301, skip1)
+        self.sam.link.WriteAsicReg(0x4302, read2)
+        self.sam.link.WriteAsicReg(0x4303, skip2)
+        self.sam.link.WriteAsicReg(0x4034, total)
+
+        # there is a per-frame size override. Clear that and recalculate.
+        self.sam.overrideFrameSize(None)
+        #frameSize, _ = self.sam.calcFrameSize()
+        #self.sam.overrideFrameSize([frameSize[0], total])
+
+        self.reportRowSequence(cmd)
+
+    def clearRowSkipping(self, cmd):
+        self.sam.link.WriteAsicReg(0x4034, 4096)
+        self.sam.link.WriteAsicReg(0x4300, 0)
+        self.sam.link.WriteAsicReg(0x4301, 0)
+        self.sam.link.WriteAsicReg(0x4302, 0)
+        self.sam.link.WriteAsicReg(0x4303, 0)
+        self.sam.overrideFrameSize(None)
+        self.reportRowSequence(cmd)
 
     def reconfigAsic(self, cmd):
         """Trigger the ASIC reconfig process. """
@@ -648,6 +689,42 @@ class HxCmd(object):
         self.hxCards.append(dict(name='W_OLLPCR', value=current, comment='[A] Photodiode current'))
         self.hxCards.append(dict(name='W_OLFLUX', value=flux, comment='[photons/s] Calibrated flux'))
 
+    def placeSkippedRows(self, cmd, image, rowSequence):
+        """Place the packed rows from a row-skipping read into a full-sized image.
+
+        Slightly odd logic:
+        - we get two pairs of (read, skip) regions, and a total number of rows.
+        - read/place the first pair
+        - keep placing the second read and skipping until the total has been hit.
+        """
+        read1, skip1, read2, skip2, total = rowSequence
+        frameSize, _ = self.sam.calcFrameSize()
+        cfg = self.sam.hxrgDetectorConfig
+        height = 1024 * cfg.muxType
+
+        newImage = np.zeros(shape=(height, frameSize[0]), dtype=image.dtype)
+        haveRead = 0
+        if read1 > 0:
+            wantToRead = read1
+            canRead = min(wantToRead, total)
+            newImage[:canRead, :] = image[:canRead]
+            haveRead += canRead
+        nextStart = read1 + skip1
+        cmd.inform(f'text="rows1={read1},{skip1},{total}; haveRead={haveRead},{nextStart} dest={newImage.shape}"')
+        while haveRead < total:
+            wantToRead = read2
+            canRead = min(wantToRead, total-haveRead)
+            cmd.inform(f'text="dest={nextStart},{wantToRead},{canRead}; src={haveRead},{wantToRead},{canRead}"')
+
+            newImage[nextStart:nextStart+canRead, :] = image[haveRead:haveRead+canRead]
+            haveRead += canRead
+            nextStart += canRead
+            nextStart += skip2
+            cmd.inform(f'text="end2={haveRead},{total} nextStart={nextStart}"')
+
+        cmd.inform(f'text="haveRead={total},{haveRead}"')
+        return newImage
+
     def takeRamp(self, cmd):
         """Main exposure entry point.
         """
@@ -676,6 +753,18 @@ class HxCmd(object):
 
         if readoutSize is not None:
             cmd.warn(f'text="overriding readout size to cols={readoutSize[0]}, rows={readoutSize[1]}"')
+            rowSequence = None
+        else:
+            rowSequence = self.getRowSequence(cmd)
+            nominalSize, _ = self.sam.calcFrameSize()
+
+            if nominalSize[1] != rowSequence[-1]:
+                readoutSize = [nominalSize[0], rowSequence[-1]]
+                cmd.warn(f'text="rowSequence override: {rowSequence} to framesize {readoutSize}"')
+            else:
+                cmd.warn(f'text="rowSequence NO override: {rowSequence} vs {nominalSize}"')
+                rowSequence = None
+
         self.lamp(0, 0, cmd)
 
         cmd.diag('text="ramps=%s resets=%s reads=%s rdrops=%s rgroups=%s itime=%s seqno=%s exptype=%s"' %
@@ -735,7 +824,8 @@ class HxCmd(object):
                 outputReset = False
 
                 def readCB(ramp, group, read, filename, image,
-                           lamp=lamp, lampPower=lampPower):
+                           lamp=lamp, lampPower=lampPower,
+                           rowSequence=rowSequence):
 
                     global t0
                     self.setHxCards(ramp, group, read)
@@ -770,7 +860,10 @@ class HxCmd(object):
                             data = image
                             ref = None
                         else:
+                            if rowSequence is not None:
+                                image = self.placeSkippedRows(cmd, image, rowSequence)
                             data, ref = hxramp.splitIRP(image, nChannel=nChannel, refPix=irpOffset)
+
                         hdr = self.getPfsHeader(seqno=seqno, exptype=exptype, fullHeader=False, cmd=cmd)
                         cmd.inform(f'text="adding to ramp FITS file at group={group} read={read} shape={data.shape} med={np.median(data)}"')
                         self.rampBuffer.addHdu(data, hdr, hduId=(ramp, group, read),
@@ -805,6 +898,7 @@ class HxCmd(object):
                          actualFrameSize=readoutSize,
                          headerCallback=headerCB,
                          readCallback=readCB)
+            sam.overrideFrameSize(None)
             cmd.inform('text="acquisition done; waiting for files to be closed."')
             t1 = time.time()
             dt = t1-t0
