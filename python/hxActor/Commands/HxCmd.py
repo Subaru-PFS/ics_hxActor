@@ -137,19 +137,18 @@ class HxCmd(object):
             filenameFunc = None
         else:
             self.dataRoot = "/data/ramps"
-            self.dataPrefix = "PFJA"
+            self.dataPrefix = "PFJB"
 
             # We want the fits writing process to be persistent, mostly so that
             # we do not have to pay attention to when it finishes.
             self.rampBuffer = fitsWriter.FitsBuffer()
 
             def filenameFunc(dataRoot, seqno):
-                """ Return a pair of filenames, one for the ramp, one for the single stack image. """
+                """ Return the ramp filename """
 
                 # Write the full ramp
-                fileNameA = self.actor.ids.makeSpsFitsName(visit=seqno, fileType='A')
                 fileNameB = self.actor.ids.makeSpsFitsName(visit=seqno, fileType='B')
-                return os.path.join(dataRoot, fileNameA), os.path.join(dataRoot, fileNameB)
+                return None, os.path.join(dataRoot, fileNameB)
 
         from hxActor.charis import seqPath
         self.fileGenerator = seqPath.NightFilenameGen(self.dataRoot,
