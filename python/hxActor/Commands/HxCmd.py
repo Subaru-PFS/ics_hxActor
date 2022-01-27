@@ -13,9 +13,9 @@ import astropy.io.fits as pyfits
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
 from opscore.utility.qstr import qstr
-from actorcore.utility import fits as fitsUtils
-from actorcore.utility import fitsWriter
-from actorcore.utility import timecards as actortime
+from ics.utils.fits import mhs as fitsUtils
+from ics.utils.fits import fitsWriter
+from ics.utils.fits import timecards as actortime
 
 from ics.hxutils import hxramp
 from hxActor.Commands import ramp
