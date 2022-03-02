@@ -13,9 +13,9 @@ import astropy.io.fits as pyfits
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
 from opscore.utility.qstr import qstr
-from actorcore.utility import fits as fitsUtils
-from actorcore.utility import fitsWriter
-from actorcore.utility import timecards as actortime
+from ics.utils.fits import mhs as fitsUtils
+from ics.utils.fits import fitsWriter
+from ics.utils.fits import timecards as actortime
 
 from ics.hxutils import hxramp
 from hxActor.Commands import ramp
@@ -62,7 +62,7 @@ class HxCmd(object):
             ('ramp',
              '[<nramp>] [<nreset>] [<nread>] [<ngroup>] [<ndrop>] [<itime>] '
              '[<seqno>] [<exptype>] [<objname>] '
-             '[<lamp>] [<lampPower>] [<readoutSize>] [@outputReset] [@rawImage]',
+             '[<lamp>] [<lampPower>] [<readoutSize>] [@noOutputReset] [@rawImage]',
              self.takeRamp),
             ('reloadLogic', '', self.reloadLogic),
             ('readAsic', '<reg> [<nreg>]', self.getAsicReg),
@@ -725,6 +725,35 @@ class HxCmd(object):
         cmd.inform(f'text="haveRead={total},{haveRead}"')
         return newImage
 
+    def writeSingleRead(self, cmd, image, hdr, ramp, group, read, nChannel, irpOffset,
+                        rawImage=False, rowSequence=None, isResetRead=False):
+        """Write the image for a single read to disk.
+
+        - splits out the DATA and IRP components
+        - interpolates row-skipped images into full images
+        - knows about reset frames.
+        """
+
+        if rawImage:
+            data = image
+            ref = None
+        else:
+            if rowSequence is not None:
+                image = self.placeSkippedRows(cmd, image, rowSequence)
+            data, ref = hxramp.splitIRP(image, nChannel=nChannel, refPix=irpOffset)
+
+            # We always want the file to have IMAGE and REF HDUs:
+            if ref is None:
+                ref = data*0
+
+        extnamePrefix = 'RESET_' if isResetRead else ''
+        cmd.inform(f'text="adding to ramp FITS file at group={group} read={read} reset={isResetRead} shape={data.shape} ref={ref.shape}, med={np.median(data)}"')
+        self.rampBuffer.addHdu(data, hdr, hduId=(ramp, group, read),
+                                extname=f'{extnamePrefix}IMAGE_{read}')
+        if ref is not None:
+            self.rampBuffer.addHdu(ref, None, hduId=(ramp, group, None),
+                                    extname=f'{extnamePrefix}REF_{read}')
+
     def takeRamp(self, cmd):
         """Main exposure entry point.
         """
@@ -744,11 +773,19 @@ class HxCmd(object):
         lampPower = cmdKeys['lampPower'].values[0] if ('lampPower' in cmdKeys) else 0
         readoutSize = cmdKeys['readoutSize'].values if ('readoutSize' in cmdKeys) else None
         idleModeOption = cmdKeys['idleModeOption'].values[0] if ('idleModeOption' in cmdKeys) else None
-        outputReset = 'outputReset' in cmdKeys
+        outputReset = 'noOutputReset' not in cmdKeys
         rawImage = 'rawImage' in cmdKeys
 
         if idleModeOption is not None and (idleModeOption < 0 or idleModeOption > 2):
             cmd.fail('text="idleModeOption must be 0..2"')
+            return
+
+        if outputReset and nreset != 1:
+            cmd.fail('text="can only output single reset reads."')
+            return
+
+        if lamp > 0 and not outputReset:
+            cmd.fail('text="can only turn on lamps when saving reset reads."')
             return
 
         if readoutSize is not None:
@@ -788,7 +825,6 @@ class HxCmd(object):
 
         if not self.everRun:
             cmd.inform('text="blowing astropy nose..."')
-            # import ipdb; ipdb.set_trace()
             self.getTimeCards(cmd=cmd)
             self.everRun = True
 
@@ -821,56 +857,60 @@ class HxCmd(object):
                 nChannel = hxConfig.numOutputs
                 if hxConfig.h4Interleaving:
                     irpOffset = hxConfig.interleaveOffset
-                outputReset = False
-
                 def readCB(ramp, group, read, filename, image,
                            lamp=lamp, lampPower=lampPower,
                            rowSequence=rowSequence):
 
                     global t0
                     self.setHxCards(ramp, group, read)
+
+                    cmd.inform(f'text="cb ramp={ramp} group={group} read={read} image={image is not None} outputReset={outputReset}"')
                     if ramp == 0 and group == 0 and read == 0:
                         cmd.inform(f'text="DAQ output start"')
                         t0 = time.time()
+                        self.readTime = self.calcFrameTime()
+                        self.read0time = t0 + nreset*self.readTime
+                        cmd.inform(f'readTimes={t0:0.3f},{self.read0time:0.3f},{self.readTime:0.3f}')
                         return
 
+                    # We are starting a ramp: either with a reset read to write or without.
+                    # In either case, generate RESET HDU(s).
                     if ((outputReset and group == 0 and read == nreset) or
-                            (not outputReset and read == 0 and group == 1)):
+                            (not outputReset and group == 1 and read == 1)):
                         cmd.inform(f'text="creating FITS files at group={group} read={read}"')
                         if lampPower != 0:
                             cmd.inform(f'text="turning on flat lamp {lamp}@{lampPower}"')
                             self.lamp(lamp, lampPower, cmd)
 
-                        # This is a very very bad guess for now. We are called at the end of the first
-                        # read, which may or may not be a reset frame.
-                        read0time = time.time()
-                        if outputReset:
-                            read0time -= 2*sam.frameTime
-                        else:
-                            read0time -= sam.frameTime
-                        self.read0time = read0time
-                        self.readTime = sam.frameTime
                         phdr = self.getPfsHeader(seqno=seqno, exptype=exptype, cmd=cmd)
                         self.logger.info(f'filename={filename}')
                         self.rampBuffer.createFile(rampReporter, rampFilename, phdr)
-                    else:
-                        if read == nread-1:
-                            self.getLastLampState(lamp, lampPower, cmd)
-                        if rawImage:
-                            data = image
-                            ref = None
-                        else:
-                            if rowSequence is not None:
-                                image = self.placeSkippedRows(cmd, image, rowSequence)
-                            data, ref = hxramp.splitIRP(image, nChannel=nChannel, refPix=irpOffset)
 
-                        hdr = self.getPfsHeader(seqno=seqno, exptype=exptype, fullHeader=False, cmd=cmd)
-                        cmd.inform(f'text="adding to ramp FITS file at group={group} read={read} shape={data.shape} med={np.median(data)}"')
-                        self.rampBuffer.addHdu(data, hdr, hduId=(ramp, group, read),
-                                               extname=f'IMAGE_{read}')
-                        if ref is not None:
-                            self.rampBuffer.addHdu(ref, None, hduId=(ramp, group, None),
-                                                   extname=f'REF_{read}')
+                        doResetRead = True
+                        if outputReset and image is not None:
+                            resetImage = image
+                        else:
+                            resetImage = None
+                    else:
+                        doResetRead = False
+                        resetImage = None
+
+                    if read == nread-1:
+                        self.getLastLampState(lamp, lampPower, cmd)
+
+                    # We have a new non-reset read.
+                    # If we should be writing the reset read do so before writing the real read.
+                    if doResetRead:
+                        resetImageToWrite = image*0 if resetImage is None else resetImage
+                        hdr = self.getResetHeader(cmd)
+                        self.writeSingleRead(cmd, resetImageToWrite, hdr, ramp, group, 1, nChannel, irpOffset,
+                                             rawImage=rawImage, rowSequence=rowSequence, isResetRead=True)
+                        if resetImage is not None:
+                            return
+
+                    hdr = self.getPfsHeader(seqno=seqno, exptype=exptype, fullHeader=False, cmd=cmd)
+                    self.writeSingleRead(cmd, image, hdr, ramp, group, read, nChannel, irpOffset,
+                                        rawImage=rawImage, rowSequence=rowSequence, isResetRead=False)
                     if read == nread:
                         self.rampBuffer.finishFile()
                         if lampPower != 0:
@@ -1087,6 +1127,8 @@ class HxCmd(object):
         frameTime = self.calcFrameTime()
         _replaceCard(cards, dict(name="W_FRMTIM", value=frameTime,
                                  comment='[s] individual read time, per ASIC'))
+        _replaceCard(cards, dict(name="W_H4FRMT", value=frameTime,
+                                 comment='[s] individual read time, per ASIC'))
         _replaceCard(cards, dict(name='W_H4IRP', value=cfg.h4Interleaving,
                                  comment='whether we are using IRP-enabled firmware'))
         _replaceCard(cards, dict(name='W_H4IRPN', value=cfg.interleaveRatio,
@@ -1160,6 +1202,12 @@ class HxCmd(object):
 
         return allCards
 
+    def getResetHeader(self, cmd):
+        allCards = []
+
+        allCards.append(dict(name='INHERIT', value=True))
+        allCards.extend(self._getHxHeader(cmd))
+        return allCards
 
     def reloadLogic(self, cmd):
         self.sam.reloadLogic()

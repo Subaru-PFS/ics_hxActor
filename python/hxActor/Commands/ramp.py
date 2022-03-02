@@ -1,7 +1,7 @@
 import logging
 import pathlib
 
-from actorcore.utility import fitsWriter
+from ics.utils.fits import fitsWriter
 
 class Ramp(object):
     def __init__(self, cmd, reportReads=True, logLevel=logging.INFO):

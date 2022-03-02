@@ -13,9 +13,9 @@ import astropy.io.fits as pyfits
 
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
-import actorcore.utility.fits as actorFits
 
 try:
+    import actorcore.utility.fits as actorFits
     import hxActor.charis.winFiles as winFiles
     import hxActor.charis.subaru as subaru
     import hxActor.charis.scexao as scexao
