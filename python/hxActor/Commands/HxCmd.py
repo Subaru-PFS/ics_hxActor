@@ -13,9 +13,12 @@ import astropy.io.fits as pyfits
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
 from opscore.utility.qstr import qstr
+
 from ics.utils.fits import mhs as fitsUtils
 from ics.utils.fits import fitsWriter
 from ics.utils.fits import timecards as actortime
+from ics.utils.fits import wcs
+from ics.utils.sps import fits as spsFits
 
 from ics.hxutils import hxramp
 from hxActor.Commands import ramp
@@ -1187,6 +1190,8 @@ class HxCmd(object):
             timeCards = self.getTimeCards(cmd=cmd)
             allCards.extend(timeCards)
 
+            allCards.extend(spsFits.getSpsSpectroCards('n'))
+
             hxCards = self.genAllH4Cards(cmd)
             allCards.extend(hxCards)
             if self.actor.ids.site == 'J':
@@ -1196,7 +1201,7 @@ class HxCmd(object):
             allCards.extend(mhsCards)
         else:
             allCards.append(dict(name='INHERIT', value=True))
-
+            allCards.extend(wcs.pixelWcsCards())
         hxCards = self._getHxHeader(cmd)
         allCards.extend(hxCards)
 
