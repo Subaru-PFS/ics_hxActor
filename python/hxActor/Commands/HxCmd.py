@@ -651,7 +651,8 @@ class HxCmd(object):
         from hxActor.Commands import opticslab
         reload(opticslab)
 
-        opticslab.lampCmd(lamp, lampPower)
+        if lamp != 0:
+            opticslab.lampCmd(lamp, lampPower)
         cmd.inform('text="lamp %s=%s"' % (lamp, lampPower))
 
     def setHxCards(self, ramp, group, read, doClear=True):
@@ -805,7 +806,7 @@ class HxCmd(object):
                 cmd.warn(f'text="rowSequence NO override: {rowSequence} vs {nominalSize}"')
                 rowSequence = None
 
-        self.lamp(0, 0, cmd)
+        self.lamp(lamp, 0, cmd)
 
         cmd.diag('text="ramps=%s resets=%s reads=%s rdrops=%s rgroups=%s itime=%s seqno=%s exptype=%s"' %
                  (nramp, nreset, nread, ndrop, ngroup, itime, seqno, exptype))
@@ -917,7 +918,7 @@ class HxCmd(object):
                     if read == nread:
                         self.rampBuffer.finishFile()
                         if lampPower != 0:
-                            self.lamp(0, 0, cmd)
+                            self.lamp(lamp, 0, cmd)
             else:
                 sam.fileGenerator = self.fileGenerator
                 noFiles = False
