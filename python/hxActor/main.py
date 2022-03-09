@@ -5,7 +5,7 @@ import logging
 import actorcore.ICC
 
 try:
-    from pfs.utils import spectroIds
+    from ics.utils.sps import spectroIds
     instrument = "PFS"
 except ImportError:
     instrument = "CHARIS"
@@ -54,11 +54,12 @@ class OurActor(actorcore.ICC.ICC):
             self.attachAllControllers()
             self.everConnected = True
 
-            models = ['gen2', 'pfilamps']
-            models.extend([m % self.ids.idDict for m in ('hx_%(camName)s', 'enu_%(specName)s')])
-            models.extend(['dcb', f'xcu_{self.piepanName}'])
+            models = ['gen2', 'pfilamps', 'dcb']
+            models.extend([m % self.ids.idDict for m in ('enu_%(specName)s',)])
+            models.extend([f'xcu_{self.piepanName}'])
+            models.extend([f'hx_{self.piepanName}'])
 
-            if self.ids.idDict['camName'] == 'n1':
+            if self.ids.idDict['site'] == 'J':
                 models.append('idg')
                 
             self.logger.info('adding models: %s', models)
