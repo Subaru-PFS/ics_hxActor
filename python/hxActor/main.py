@@ -3,6 +3,7 @@
 import logging
 
 import actorcore.ICC
+from ics.utils import instdata
 
 try:
     from ics.utils.sps import spectroIds
@@ -36,6 +37,10 @@ class OurActor(actorcore.ICC.ICC):
                                    modelNames=modelNames)
         # For engineering, where the piepan might not be the same as the camera
         self.piepanName = self.ids.camName
+
+        self.actorConfig = instdata.InstConfig(self.name)
+        self.simulateOnly = self.actorConfig.get('simulator', False)
+
         try:
             imageCamName = self.config.get(self.name, 'imageCamName')
             self.ids = spectroIds.SpectroIds(partName=imageCamName)
@@ -48,6 +53,11 @@ class OurActor(actorcore.ICC.ICC):
 
     def connectionMade(self):
         if self.everConnected is False:
+            if self.simulateOnly:
+                self.logger.info("Attaching self as ramp command simulator only")
+                self.everConnected = True
+                return
+
             self.logger.info(f'{self.name} ids: {self.ids.idDict}')
             self.logger.info("Attaching all controllers...")
             self.allControllers = [s.strip() for s in self.config.get(self.name, 'startingControllers').split(',')]

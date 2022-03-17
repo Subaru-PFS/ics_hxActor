@@ -22,12 +22,12 @@ from ics.utils.sps import fits as spsFits
 
 from ics.hxutils import hxramp
 from hxActor.Commands import ramp
+from hxActor.Commands import rampSim
 
 reload(fitsWriter)
 reload(hxramp)
 reload(ramp)
-
-
+reload(rampSim)
 class HxCmd(object):
 
     def __init__(self, actor):
@@ -66,7 +66,7 @@ class HxCmd(object):
              '[<nramp>] [<nreset>] [<nread>] [<ngroup>] [<ndrop>] [<itime>] '
              '[<seqno>] [<exptype>] [<objname>] '
              '[<lamp>] [<lampPower>] [<readoutSize>] [@noOutputReset] [@rawImage]',
-             self.takeRamp),
+             self.takeOrSimRamp),
             ('reloadLogic', '', self.reloadLogic),
             ('readAsic', '<reg> [<nreg>]', self.getAsicReg),
             ('writeAsic', '<reg> <value>', self.writeAsicReg),
@@ -757,6 +757,33 @@ class HxCmd(object):
         if ref is not None:
             self.rampBuffer.addHdu(ref, None, hduId=(ramp, group, None),
                                     extname=f'{extnamePrefix}REF_{read}')
+
+    def takeOrSimRamp(self, cmd):
+        """Take a ramp"""
+
+        if self.actor.simulateOnly:
+            self.simulateRamp(cmd)
+        else:
+            self.takeRamp(cmd)
+
+    def simulateRamp(self, cmd):
+        cmdKeys = cmd.cmd.keywords
+
+        nramp = cmdKeys['nramp'].values[0] if ('nramp' in cmdKeys) else 1
+        nreset = cmdKeys['nreset'].values[0] if ('nreset' in cmdKeys) else 1
+        nread = cmdKeys['nread'].values[0] if ('nread' in cmdKeys) else 1
+        ndrop = cmdKeys['ndrop'].values[0] if ('ndrop' in cmdKeys) else 0
+        ngroup = cmdKeys['ngroup'].values[0] if ('ngroup' in cmdKeys) else 1
+        seqno = cmdKeys['seqno'].values[0] if ('seqno' in cmdKeys) else None
+
+        if nramp != 1 or ngroup !=1 or ndrop != 0 or nreset not in {0,1} or 'noOutputReset' in cmdKeys:
+            cmd.fail('text="will only simulate simple ramps (ngroup=nramp=1, nreset<=1, ndrop=0"')
+            return
+        if 'readoutSize' in cmdKeys:
+            cmd.fail('text="cannot simulate hacked readoutSize"')
+            return
+
+        rampSim.rampSim(cmd, seqno, nread, nramp=1, ngroup=1, nreset=1, ndrop=0, readTime=10.857)
 
     def takeRamp(self, cmd):
         """Main exposure entry point.

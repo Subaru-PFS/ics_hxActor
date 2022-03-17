@@ -4,44 +4,8 @@ import time
 
 import numpy as np
 
+from ics.utils import mhs
 from ics.utils import time as pfsTime
-
-def isoTs0(t=None, tz=time.timezone, precision=3):
-    """An ISO-formatted local timestamp, based on UTC unix seconds.
-
-    Parameters
-    ----------
-    t : `float`, optional
-        a time.time(). If None, make one now.
-    tz : `int`, optional
-        the timezone to use, by default the host's.
-        If None: use the local timezone, but do not format it.
-    precision : int, optional
-        how many digits for fractional seconds, by default 3
-
-    Returns
-    -------
-    timestamp : `str`
-       An ISO 8601 compliant time string
-    """
-    if t is None:
-        t = time.time()
-
-    if precision == 0:
-        fracStr = ''
-    else:
-        fracSeconds = int((t%1) * 10**precision)
-        fracStr = f'.{fracSeconds:0{precision}d}'
-
-    if tz is None:
-        tzname=''
-    elif tz == 0:
-        tzname = 'Z'
-    else:
-        tzname = "%z"
-
-    return time.strftime(f'%Y-%m-%dT%H:%M:%S{fracStr}{tzname}',
-                         time.localtime(t))
 
 def isoTs(t=None):
     if t is None:
@@ -50,25 +14,8 @@ def isoTs(t=None):
         ts = pfsTime.Time.fromtimestamp(t)
 
     return ts.isoformat()
-
-class NullCmd:
-    """Dummy Command for when we are not using actorcore code."""
-    def print(self, level, s):
-        print(f'{isoTs()} {level} {s}')
-
-    def diag(self, s):
-        self.print('d', s)
-    def inform(self, s):
-        self.print('i', s)
-    def warn(self, s):
-        self.print('w', s)
-    def finish(self, s=""):
-        self.print(':', s)
-    def fail(self, s=""):
-        self.print('f', s)
-
 class flusher(threading.Thread):
-    def __init__(self, cmd, visit, filename='/tmp/nonexistent.fits', rampn=1):
+    def __init__(self, cmd, visit, filename='/tmp/PFXA00000003.fits'):
         """Simulate file writes with delays
 
         Parameters
@@ -91,9 +38,6 @@ class flusher(threading.Thread):
         self.writeDelay = 0.5
         self.closeDelay = 5.0
 
-        self.rampn = rampn
-        self.readn = 0
-
     def delayWrite(self):
         # Needs to be some distribution TBD
         time.sleep(self.writeDelay)
@@ -103,11 +47,11 @@ class flusher(threading.Thread):
         time.sleep(self.closeDelay)
 
     def exit(self):
-        self.q.put(('exit', Nonels )
+        self.q.put(('exit', None))
     def finishCmd(self):
-        self.q.put('finish')
-    def writeCmd(self, readn, groupn, rampn=1):
-        self.q.put('write')
+        self.q.put(('finish', None))
+    def writeCmd(self, rampn, groupn, readn):
+        self.q.put(('write', (rampn,groupn,readn)))
 
     def run(self):
         while True:
@@ -117,11 +61,12 @@ class flusher(threading.Thread):
                 return
             elif action == 'finish':
                 self.delayClose()
-                self.cmd.inform(f'filename={self.filename}')
+                self.cmd.finish(f'filename={self.filename}')
+                return
             elif action == 'write':
+                rampn,groupn,readn = args
                 self.delayWrite()
-                self.cmd.inform(f'hxwrite={self.visit},{self.rampn},{self.readn},1')
-                self.readn += 1
+                self.cmd.inform(f'hxwrite={self.visit},{rampn},{groupn},{readn}')
 
 def rampSim(cmd, visit, nread, nramp=1, ngroup=1, nreset=1, ndrop=0, readTime=10.857):
     """Simulate the keywords and timing of taking a ramp
@@ -146,8 +91,9 @@ def rampSim(cmd, visit, nread, nramp=1, ngroup=1, nreset=1, ndrop=0, readTime=10
     # Declare the shape of our output.
     cmd.inform('ramp=%d,%d,%d,%d,%d' % (nramp,ngroup,nreset,nread,ndrop))
 
-    # How long before the ASIC starts feeding us the reset frame.
-    startDelay = np.random.random(1) * readTime
+    # How long before the ASIC gets to the top of the next frame: a random fraction of
+    # a full read time.
+    startDelay = np.random.random(1)[0] * readTime
 
     # Wait for the ASIC, then tell the world about the expected times.
     time.sleep(startDelay)
@@ -156,21 +102,21 @@ def rampSim(cmd, visit, nread, nramp=1, ngroup=1, nreset=1, ndrop=0, readTime=10
 
     resetStartStamp = isoTs(resetStart)
     read0StartStamp = isoTs(read0Start)
-    cmd.inform(f'{resetStart} {read0Start} {read0Start-resetStart}')
     cmd.inform(f'readTimes={resetStartStamp},{read0StartStamp},{readTime:0.3f}')
 
-    ioThread = flusher(cmd, visit, '/tmp/foo')
+    ioThread = flusher(cmd, visit)
     ioThread.start()
 
     try:
         # need to be sloppier: the hxread etc outputs come after the file I/O has been done.
         for i in range(nreset):
+            cmd.inform(f'hxread={visit},1,0,{i}')
             time.sleep(readTime)
-            ioThread.writeCmd()
+            ioThread.writeCmd(1,0,i)
         for i in range(nread):
+            cmd.inform(f'hxread={visit},1,1,{i}')
             time.sleep(readTime)
-            self.cmd.inform(f'hxread={visit},{self.rampn},{self.readn},1')
-            ioThread.writeCmd()
+            ioThread.writeCmd(1,1,i)
         ioThread.finishCmd()
 
     finally:
