@@ -15,7 +15,7 @@ def isoTs(t=None):
 
     return ts.isoformat()
 class flusher(threading.Thread):
-    def __init__(self, cmd, visit, filename='/tmp/PFXA00000003.fits'):
+    def __init__(self, cmd, visit, filename=None):
         """Simulate file writes with delays
 
         Parameters
@@ -33,7 +33,7 @@ class flusher(threading.Thread):
         self.cmd = cmd
         self.q = queue.Queue()
         self.visit = visit
-        self.filename = filename
+        self.filename = filename if filename is not None else f'/tmp/PFXA{visit:06d}03.fits'
 
         self.writeDelay = 0.5
         self.closeDelay = 5.0
@@ -110,13 +110,13 @@ def rampSim(cmd, visit, nread, nramp=1, ngroup=1, nreset=1, ndrop=0, readTime=10
     try:
         # need to be sloppier: the hxread etc outputs come after the file I/O has been done.
         for i in range(nreset):
-            cmd.inform(f'hxread={visit},1,0,{i}')
             time.sleep(readTime)
-            ioThread.writeCmd(1,0,i)
+            cmd.inform(f'hxread={visit},1,0,{i+1}')
+            ioThread.writeCmd(1,0,i+1)
         for i in range(nread):
-            cmd.inform(f'hxread={visit},1,1,{i}')
             time.sleep(readTime)
-            ioThread.writeCmd(1,1,i)
+            cmd.inform(f'hxread={visit},1,1,{i+1}')
+            ioThread.writeCmd(1,1,i+1)
         ioThread.finishCmd()
 
     finally:

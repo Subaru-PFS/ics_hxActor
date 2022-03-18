@@ -774,7 +774,7 @@ class HxCmd(object):
         nread = cmdKeys['nread'].values[0] if ('nread' in cmdKeys) else 1
         ndrop = cmdKeys['ndrop'].values[0] if ('ndrop' in cmdKeys) else 0
         ngroup = cmdKeys['ngroup'].values[0] if ('ngroup' in cmdKeys) else 1
-        seqno = cmdKeys['seqno'].values[0] if ('seqno' in cmdKeys) else None
+        seqno = cmdKeys['seqno'].values[0] if ('seqno' in cmdKeys) else 9999
 
         if nramp != 1 or ngroup !=1 or ndrop != 0 or nreset not in {0,1} or 'noOutputReset' in cmdKeys:
             cmd.fail('text="will only simulate simple ramps (ngroup=nramp=1, nreset<=1, ndrop=0"')
