@@ -771,19 +771,22 @@ class HxCmd(object):
 
         nramp = cmdKeys['nramp'].values[0] if ('nramp' in cmdKeys) else 1
         nreset = cmdKeys['nreset'].values[0] if ('nreset' in cmdKeys) else 1
-        nread = cmdKeys['nread'].values[0] if ('nread' in cmdKeys) else 1
+        nread = cmdKeys['nread'].values[0] if ('nread' in cmdKeys) else 2
         ndrop = cmdKeys['ndrop'].values[0] if ('ndrop' in cmdKeys) else 0
         ngroup = cmdKeys['ngroup'].values[0] if ('ngroup' in cmdKeys) else 1
         seqno = cmdKeys['seqno'].values[0] if ('seqno' in cmdKeys) else 9999
 
-        if nramp != 1 or ngroup !=1 or ndrop != 0 or nreset not in {0,1} or 'noOutputReset' in cmdKeys:
-            cmd.fail('text="will only simulate simple ramps (ngroup=nramp=1, nreset<=1, ndrop=0"')
+        if nramp != 1 or nread < 1 or ngroup != 1 or ndrop != 0 or nreset not in {0,1} or 'noOutputReset' in cmdKeys:
+            cmd.fail('text="will only simulate simple ramps (ngroup=nramp=1, nreset<=1, ndrop=0, nread>0"')
             return
         if 'readoutSize' in cmdKeys:
             cmd.fail('text="cannot simulate hacked readoutSize"')
             return
 
-        rampSim.rampSim(cmd, seqno, nread, nramp=1, ngroup=1, nreset=1, ndrop=0, readTime=10.857)
+        rampSim.rampSim(cmd, seqno, nread,
+                        nramp=nramp, ngroup=ngroup,
+                        nreset=nreset, ndrop=0,
+                        readTime=10.857)
 
     def takeRamp(self, cmd):
         """Main exposure entry point.
@@ -793,7 +796,7 @@ class HxCmd(object):
 
         nramp = cmdKeys['nramp'].values[0] if ('nramp' in cmdKeys) else 1
         nreset = cmdKeys['nreset'].values[0] if ('nreset' in cmdKeys) else 1
-        nread = cmdKeys['nread'].values[0] if ('nread' in cmdKeys) else 1
+        nread = cmdKeys['nread'].values[0] if ('nread' in cmdKeys) else 2
         ndrop = cmdKeys['ndrop'].values[0] if ('ndrop' in cmdKeys) else 0
         ngroup = cmdKeys['ngroup'].values[0] if ('ngroup' in cmdKeys) else 1
         itime = cmdKeys['itime'].values[0] if ('itime' in cmdKeys) else None
