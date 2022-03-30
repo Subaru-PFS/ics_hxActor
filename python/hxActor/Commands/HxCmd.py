@@ -22,12 +22,12 @@ from ics.utils.sps import fits as spsFits
 
 from ics.hxutils import hxramp
 from hxActor.Commands import ramp
+from hxActor.Commands import rampSim
 
 reload(fitsWriter)
 reload(hxramp)
 reload(ramp)
-
-
+reload(rampSim)
 class HxCmd(object):
 
     def __init__(self, actor):
@@ -64,9 +64,9 @@ class HxCmd(object):
             ('setVoltage', '<name> <voltage>', self.setVoltage),
             ('ramp',
              '[<nramp>] [<nreset>] [<nread>] [<ngroup>] [<ndrop>] [<itime>] '
-             '[<seqno>] [<exptype>] [<objname>] '
+             '[<visit>] [<exptype>] [<objname>] '
              '[<lamp>] [<lampPower>] [<readoutSize>] [@noOutputReset] [@rawImage]',
-             self.takeRamp),
+             self.takeOrSimRamp),
             ('reloadLogic', '', self.reloadLogic),
             ('readAsic', '<reg> [<nreg>]', self.getAsicReg),
             ('writeAsic', '<reg> <value>', self.writeAsicReg),
@@ -79,8 +79,8 @@ class HxCmd(object):
 
         # Define typed command arguments for the above commands.
         self.keys = keys.KeysDictionary("hx", (1, 2),
-                                        keys.Key("seqno", types.Int(), default=None,
-                                                 help='If set, the assigned sequence number.'),
+                                        keys.Key("visit", types.Int(), default=None,
+                                                 help='If set, the assigned visit number.'),
                                         keys.Key("nramp", types.Int(), default=1,
                                                  help='number of ramps to take.'),
                                         keys.Key("nreset", types.Int(), default=1,
@@ -146,11 +146,11 @@ class HxCmd(object):
             # we do not have to pay attention to when it finishes.
             self.rampBuffer = fitsWriter.FitsBuffer()
 
-            def filenameFunc(dataRoot, seqno):
+            def filenameFunc(dataRoot, visit):
                 """ Return the ramp filename """
 
                 # Write the full ramp
-                fileNameB = self.actor.ids.makeSpsFitsName(visit=seqno, fileType='B')
+                fileNameB = self.actor.ids.makeSpsFitsName(visit=visit, fileType='B')
                 return None, os.path.join(dataRoot, fileNameB)
 
         from hxActor.charis import seqPath
@@ -758,6 +758,35 @@ class HxCmd(object):
             self.rampBuffer.addHdu(ref, None, hduId=(ramp, group, None),
                                     extname=f'{extnamePrefix}REF_{read}')
 
+    def takeOrSimRamp(self, cmd):
+        """Take a ramp"""
+
+        if self.actor.simulateOnly:
+            self.simulateRamp(cmd)
+        else:
+            self.takeRamp(cmd)
+
+    def simulateRamp(self, cmd):
+        cmdKeys = cmd.cmd.keywords
+
+        nreset = cmdKeys['nreset'].values[0] if ('nreset' in cmdKeys) else 1
+        nread = cmdKeys['nread'].values[0] if ('nread' in cmdKeys) else 2
+        ndrop = cmdKeys['ndrop'].values[0] if ('ndrop' in cmdKeys) else 0
+        ngroup = cmdKeys['ngroup'].values[0] if ('ngroup' in cmdKeys) else 1
+        visit = cmdKeys['visit'].values[0] if ('visit' in cmdKeys) else 9999
+
+        if nread < 1 or ngroup != 1 or ndrop != 0 or nreset not in {0,1} or 'noOutputReset' in cmdKeys:
+            cmd.fail('text="will only simulate simple ramps (ngroup=1, nreset<=1, ndrop=0, nread>0"')
+            return
+        if 'readoutSize' in cmdKeys:
+            cmd.fail('text="cannot simulate hacked readoutSize"')
+            return
+
+        rampSim.rampSim(cmd, visit, nread,
+                        ngroup=ngroup,
+                        nreset=nreset, ndrop=0,
+                        readTime=10.857)
+
     def takeRamp(self, cmd):
         """Main exposure entry point.
         """
@@ -766,11 +795,11 @@ class HxCmd(object):
 
         nramp = cmdKeys['nramp'].values[0] if ('nramp' in cmdKeys) else 1
         nreset = cmdKeys['nreset'].values[0] if ('nreset' in cmdKeys) else 1
-        nread = cmdKeys['nread'].values[0] if ('nread' in cmdKeys) else 1
+        nread = cmdKeys['nread'].values[0] if ('nread' in cmdKeys) else 2
         ndrop = cmdKeys['ndrop'].values[0] if ('ndrop' in cmdKeys) else 0
         ngroup = cmdKeys['ngroup'].values[0] if ('ngroup' in cmdKeys) else 1
         itime = cmdKeys['itime'].values[0] if ('itime' in cmdKeys) else None
-        seqno = cmdKeys['seqno'].values[0] if ('seqno' in cmdKeys) else None
+        visit = cmdKeys['visit'].values[0] if ('visit' in cmdKeys) else 0
         exptype = cmdKeys['exptype'].values[0] if ('exptype' in cmdKeys) else 'TEST'
         objname = cmdKeys['objname'].values[0] if ('objname' in cmdKeys) else 'TEST'
         lamp = cmdKeys['lamp'].values[0] if ('lamp' in cmdKeys) else 0
@@ -808,8 +837,8 @@ class HxCmd(object):
 
         self.lamp(lamp, 0, cmd)
 
-        cmd.diag('text="ramps=%s resets=%s reads=%s rdrops=%s rgroups=%s itime=%s seqno=%s exptype=%s"' %
-                 (nramp, nreset, nread, ndrop, ngroup, itime, seqno, exptype))
+        cmd.diag('text="ramps=%s resets=%s reads=%s rdrops=%s rgroups=%s itime=%s visit=%s exptype=%s"' %
+                 (nramp, nreset, nread, ndrop, ngroup, itime, visit, exptype))
 
         if itime is not None:
             if 'nread' in cmdKeys:
@@ -833,6 +862,7 @@ class HxCmd(object):
             self.everRun = True
 
         cmd.inform('ramp=%d,%d,%d,%d,%d' % (nramp,ngroup,nreset,nread,ndrop))
+        cmd.inform('rampConfig=%d,%d,%d,%d,%d' % (visit,ngroup,nreset,nread,ndrop))
 
         self.updateDaqState(cmd, always=False)
         self.hxCards = []
@@ -848,6 +878,7 @@ class HxCmd(object):
                 if nramp != 1:
                     raise ValueError("PFS can only take one ramp at a time")
 
+                seqno = None if visit == 0 else visit
                 _, rampFilename = self.fileGenerator.getNextFileset(seqno=seqno)
 
                 rampReporter = ramp.Ramp(cmd)
@@ -886,7 +917,7 @@ class HxCmd(object):
                             cmd.inform(f'text="turning on flat lamp {lamp}@{lampPower}"')
                             self.lamp(lamp, lampPower, cmd)
 
-                        phdr = self.getPfsHeader(seqno=seqno, exptype=exptype, cmd=cmd)
+                        phdr = self.getPfsHeader(visit=visit, exptype=exptype, cmd=cmd)
                         self.logger.info(f'filename={filename}')
                         self.rampBuffer.createFile(rampReporter, rampFilename, phdr)
 
@@ -912,7 +943,7 @@ class HxCmd(object):
                         if resetImage is not None:
                             return
 
-                    hdr = self.getPfsHeader(seqno=seqno, exptype=exptype, fullHeader=False, cmd=cmd)
+                    hdr = self.getPfsHeader(visit=visit, exptype=exptype, fullHeader=False, cmd=cmd)
                     self.writeSingleRead(cmd, image, hdr, ramp, group, read, nChannel, irpOffset,
                                         rawImage=rawImage, rowSequence=rowSequence, isResetRead=False)
                     if read == nread:
@@ -925,7 +956,7 @@ class HxCmd(object):
                 rampReporter = None
                 timeCB = None
                 def readCB(ramp, group, read, filename, image):
-                    cmd.inform('hxread=%s,%d,%d,%d' % (filename, ramp, group, read))
+                    cmd.inform('hxread=%s,%d,%d' % (filename, group, read))
                     if read == nread-1:
                         self.getLastState(lamp, lampPower, cmd)
                     if read == nread:
@@ -936,7 +967,7 @@ class HxCmd(object):
                     return hdr.cards
             sam.takeRamp(nResets=nreset, nReads=nread,
                          noReturn=True, nRamps=nramp,
-                         seqno=seqno, exptype=exptype,
+                         seqno=visit, exptype=exptype,
                          outputReset=outputReset,
                          noFiles=noFiles,
                          actualFrameSize=readoutSize,
@@ -1180,7 +1211,7 @@ class HxCmd(object):
             cmd.warn(f'text="it took {t1-t0:0.2f} seconds to fetch time cards!"')
         return timecards
 
-    def getPfsHeader(self, seqno=None,
+    def getPfsHeader(self, visit=None,
                      exptype='TEST',
                      fullHeader=True, cmd=None):
 
