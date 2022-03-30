@@ -35,7 +35,7 @@ class flusher(threading.Thread):
         self.visit = visit
         self.filename = filename if filename is not None else f'/tmp/PFXA{visit:06d}03.fits'
 
-        self.writeDelay = 0.5
+        self.writeDelay = 2.0
         self.closeDelay = 5.0
 
     def delayWrite(self):
@@ -50,8 +50,8 @@ class flusher(threading.Thread):
         self.q.put(('exit', None))
     def finishCmd(self):
         self.q.put(('finish', None))
-    def writeCmd(self, rampn, groupn, readn):
-        self.q.put(('write', (rampn,groupn,readn)))
+    def writeCmd(self, groupn, readn):
+        self.q.put(('write', (groupn,readn)))
 
     def run(self):
         while True:
@@ -60,15 +60,19 @@ class flusher(threading.Thread):
                 self.cmd.inform('text="sim I/O thread exiting')
                 return
             elif action == 'finish':
+                t0 = time.time()
                 self.delayClose()
-                self.cmd.finish(f'filename={self.filename}')
+                t1 = time.time()
+                self.cmd.inform(f'filename={self.filename}')
                 return
             elif action == 'write':
-                rampn,groupn,readn = args
+                t0 = time.time()
+                groupn,readn = args
                 self.delayWrite()
-                self.cmd.inform(f'hxwrite={self.visit},{rampn},{groupn},{readn}')
+                t1 = time.time()
+                self.cmd.inform(f'hxwrite={self.visit},{groupn},{readn},{t1-t0:0.2f}')
 
-def rampSim(cmd, visit, nread, nramp=1, ngroup=1, nreset=1, ndrop=0, readTime=10.857):
+def rampSim(cmd, visit, nread, ngroup=1, nreset=1, ndrop=0, readTime=10.857):
     """Simulate the keywords and timing of taking a ramp
 
     The ASIC always runs its own internal line clock. Our reads sync to that,
@@ -89,7 +93,7 @@ def rampSim(cmd, visit, nread, nramp=1, ngroup=1, nreset=1, ndrop=0, readTime=10
     """
 
     # Declare the shape of our output.
-    cmd.inform('ramp=%d,%d,%d,%d,%d' % (nramp,ngroup,nreset,nread,ndrop))
+    cmd.inform('rampConfig=%d,%d,%d,%d,%d' % (visit,ngroup,nreset,nread,ndrop))
 
     # How long before the ASIC gets to the top of the next frame: a random fraction of
     # a full read time.
@@ -102,7 +106,7 @@ def rampSim(cmd, visit, nread, nramp=1, ngroup=1, nreset=1, ndrop=0, readTime=10
 
     resetStartStamp = isoTs(resetStart)
     read0StartStamp = isoTs(read0Start)
-    cmd.inform(f'readTimes={resetStartStamp},{read0StartStamp},{readTime:0.3f}')
+    cmd.inform(f'readTimes={visit},{resetStartStamp},{read0StartStamp},{readTime:0.3f}')
 
     ioThread = flusher(cmd, visit)
     ioThread.start()
@@ -111,16 +115,18 @@ def rampSim(cmd, visit, nread, nramp=1, ngroup=1, nreset=1, ndrop=0, readTime=10
         # need to be sloppier: the hxread etc outputs come after the file I/O has been done.
         for i in range(nreset):
             time.sleep(readTime)
-            cmd.inform(f'hxread={visit},1,0,{i+1}')
-            ioThread.writeCmd(1,0,i+1)
-        for i in range(nread):
-            time.sleep(readTime)
-            cmd.inform(f'hxread={visit},1,1,{i+1}')
-            ioThread.writeCmd(1,1,i+1)
+            cmd.inform(f'hxread={visit},0,{i+1}')
+            ioThread.writeCmd(0,i+1)
+        for g_i in range(ngroup):
+            for i in range(nread):
+                time.sleep(readTime)
+                cmd.inform(f'hxread={visit},{g_i+1},{i+1}')
+                ioThread.writeCmd(1,i+1)
+            for d_i in range(ndrop):
+                time.sleep(readTime)
+                cmd.inform(f'text="ignoring drop read {d_i+1}/{ndrop} "')
         ioThread.finishCmd()
-
     finally:
-        ioThread.exit()
         ioThread.join()
 
     cmd.finish()
