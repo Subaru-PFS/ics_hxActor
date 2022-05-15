@@ -256,9 +256,15 @@ class HxCmd(object):
 
         return read1,skip1,read2,skip2,total
 
-    def reportRowSequence(self, cmd):
-        read1,skip1,read2,skip2,total = self.getRowSequence(cmd)
-        cmd.finish(f'skipSequence={read1},{skip1},{read2},{skip2},{total}')
+    def reportRowSequence(self, cmd, doFinish=False):
+        read1,skip1,read2,skip2,total = seq = self.getRowSequence(cmd)
+        msg = f'skipSequence={total != 4096},{read1},{skip1},{read2},{skip2},{total}'
+        if doFinish:
+            cmd.finish(msg)
+        else:
+            cmd.inform(msg)
+
+        return seq
 
     def setRowSkipping(self, cmd):
         read1, skip1, read2, skip2, total = cmd.cmd.keywords['skipSequence'].values
@@ -273,8 +279,7 @@ class HxCmd(object):
         self.sam.overrideFrameSize(None)
         #frameSize, _ = self.sam.calcFrameSize()
         #self.sam.overrideFrameSize([frameSize[0], total])
-
-        self.reportRowSequence(cmd)
+        self.reportRowSequence(cmd, doFinish=True)
 
     def clearRowSkipping(self, cmd):
         self.sam.link.WriteAsicReg(0x4034, 4096)
@@ -283,7 +288,8 @@ class HxCmd(object):
         self.sam.link.WriteAsicReg(0x4302, 0)
         self.sam.link.WriteAsicReg(0x4303, 0)
         self.sam.overrideFrameSize(None)
-        self.reportRowSequence(cmd)
+
+        self.reportRowSequence(cmd, doFinish=True)
 
     def reconfigAsic(self, cmd):
         """Trigger the ASIC reconfig process. """
@@ -301,6 +307,7 @@ class HxCmd(object):
     def getHxConfig(self, cmd, doFinish=True):
         self.grabAllH4Info(cmd, doFinish=False)
         cfg = self.controller.daqState.hxConfig
+        self.reportRowSequence(cmd)
 
         keys = []
         if not cfg.h4Interleaving:
@@ -825,7 +832,7 @@ class HxCmd(object):
             cmd.warn(f'text="overriding readout size to cols={readoutSize[0]}, rows={readoutSize[1]}"')
             rowSequence = None
         else:
-            rowSequence = self.getRowSequence(cmd)
+            rowSequence = self.reportRowSequence(cmd)
             nominalSize, _ = self.sam.calcFrameSize()
 
             if nominalSize[1] != rowSequence[-1]:
