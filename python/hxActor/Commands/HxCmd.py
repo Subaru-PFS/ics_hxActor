@@ -801,7 +801,7 @@ class HxCmd(object):
         itime = cmdKeys['itime'].values[0] if ('itime' in cmdKeys) else None
         visit = cmdKeys['visit'].values[0] if ('visit' in cmdKeys) else 0
         exptype = cmdKeys['exptype'].values[0] if ('exptype' in cmdKeys) else 'TEST'
-        objname = cmdKeys['objname'].values[0] if ('objname' in cmdKeys) else 'TEST'
+        objname = str(cmdKeys['objname'].values[0]) if ('objname' in cmdKeys) else 'TEST'
         lamp = cmdKeys['lamp'].values[0] if ('lamp' in cmdKeys) else 0
         lampPower = cmdKeys['lampPower'].values[0] if ('lampPower' in cmdKeys) else 0
         readoutSize = cmdKeys['readoutSize'].values if ('readoutSize' in cmdKeys) else None
@@ -917,7 +917,8 @@ class HxCmd(object):
                             cmd.inform(f'text="turning on flat lamp {lamp}@{lampPower}"')
                             self.lamp(lamp, lampPower, cmd)
 
-                        phdr = self.getPfsHeader(visit=visit, exptype=exptype, cmd=cmd)
+                        phdr = self.getPfsHeader(visit=visit, exptype=exptype,
+                                                 objname=objname, cmd=cmd)
                         self.logger.info(f'filename={filename}')
                         self.rampBuffer.createFile(rampReporter, rampFilename, phdr)
 
@@ -943,7 +944,8 @@ class HxCmd(object):
                         if resetImage is not None:
                             return
 
-                    hdr = self.getPfsHeader(visit=visit, exptype=exptype, fullHeader=False, cmd=cmd)
+                    hdr = self.getPfsHeader(visit=visit, exptype=exptype,
+                                            objname=objname, fullHeader=False, cmd=cmd)
                     self.writeSingleRead(cmd, image, hdr, ramp, group, read, nChannel, irpOffset,
                                         rawImage=rawImage, rowSequence=rowSequence, isResetRead=False)
                     if read == nread:
@@ -1213,12 +1215,19 @@ class HxCmd(object):
 
     def getPfsHeader(self, visit=None,
                      exptype='TEST',
+                     objname=None,
                      fullHeader=True, cmd=None):
 
         allCards = []
-        allCards.append(dict(name='DATA-TYP', value=exptype.upper(), comment='Subaru-style exposure type'))
+        allCards.append(dict(name='DATA-TYP',
+                             value=exptype.upper(),
+                             comment='Subaru-style exposure type'))
 
         if fullHeader:
+            if objname is not None:
+                allCards.append(dict(name='OBJECT',
+                                     value=objname,
+                                     comment='user-specified name'))
             timeCards = self.getTimeCards(cmd=cmd)
             allCards.extend(timeCards)
 
@@ -1230,6 +1239,8 @@ class HxCmd(object):
                 allCards.extend(self.genJhuCards(cmd))
 
             mhsCards = self._getMhsHeader(cmd)
+            if objname is not None:
+                mhsCards = [c for c in mhsCards if c['name'] != 'OBJECT']
             allCards.extend(mhsCards)
         else:
             allCards.append(dict(name='INHERIT', value=True))
@@ -1253,7 +1264,7 @@ class HxCmd(object):
     def setReadSpeed(self, cmd):
         cmdKeys = cmd.cmd.keywords
 
-        style = 'fast' if 'fast' in cmdKeys else 'slow'
+        style = 'fast' if 'fast' in cmdKeys else 'fast'
         logLevel = logging.DEBUG if 'debug' in cmdKeys else logging.INFO
 
         link = self.sam.link
