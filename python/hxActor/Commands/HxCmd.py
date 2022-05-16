@@ -601,8 +601,15 @@ class HxCmd(object):
 
     def getSpiRegisters(self, cmd):
         h4Regs = self.sam.readAllH4SpiRegs()
+        allBad = True
         for i, reg in enumerate(h4Regs):
             cmd.inform(f'spiReg%d=0x%04x' % (i, reg))
+            if reg != 0:
+                allBad = False
+        if allBad:
+            cmd.warn('h4SpiState="WARNING: H4 SPI registers are all 0! ASIC cannot read H4!"')
+        else:
+            cmd.inform('h4SpiState="OK"')
         cmd.finish()
 
     def resetAsic(self, cmd):
