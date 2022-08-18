@@ -74,7 +74,8 @@ class HxCmd(object):
             ('setReadSpeed', '@(fast|slow) [@debug]', self.setReadSpeed),
             ('grabAllH4Info', '[@doRef]', self.grabAllH4Info),
             ('clearRowSkipping', '', self.clearRowSkipping),
-            ('setRowSkipping', '<skipSequence>', self.setRowSkipping)
+            ('setRowSkipping', '<skipSequence>', self.setRowSkipping),
+            ('downloadMcdFile', '<firmwareFile>', self.downloadMcdFile),
         ]
 
         # Define typed command arguments for the above commands.
@@ -246,6 +247,15 @@ class HxCmd(object):
 
         if doFinish:
             cmd.finish()
+
+    def downloadMcdFile(self, cmd):
+        """Download a named .mcd file."""
+
+        firmwareFile = cmd.cmd.keywords['firmwareFile'].values[0]
+
+        cmd.inform(f'text="downloading .mcd file: {firmwareFile}"')
+        self.sam.downloadMcdFile(firmwareFile)
+        cmd.finish(f'text="download done"')
 
     def getRowSequence(self, cmd):
         read1 = self.sam.link.ReadAsicReg(0x4300)
