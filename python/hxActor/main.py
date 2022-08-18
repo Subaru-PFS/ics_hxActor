@@ -31,14 +31,14 @@ class OurActor(actorcore.ICC.ICC):
             
         # This sets up the connections to/from the hub, the logger, and the twisted reactor.
         #
-        print(f'configuring for {name}, camera={self.ids.camName} instrument={instrument}')
+        print(f'configuring for {name}, camera={self.ids.camName} instrument={instrument} ids={self.ids.idDict}')
         actorcore.ICC.ICC.__init__(self, name, 
                                    productName=productName,
-                                   modelNames=modelNames)
+                                   modelNames=modelNames,
+                                   idDict=self.ids.idDict)
         # For engineering, where the piepan might not be the same as the camera
         self.piepanName = self.ids.camName
 
-        self.actorConfig = instdata.InstConfig(self.name)
         self.simulateOnly = self.actorConfig.get('simulator', False)
 
         try:
