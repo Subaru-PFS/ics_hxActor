@@ -19,8 +19,9 @@ from ics.utils.fits import fitsWriter
 from ics.utils.fits import timecards as actortime
 from ics.utils.fits import wcs
 from ics.utils.sps import fits as spsFits
+from ics.utils import time as pfsTime
 
-from ics.hxutils import hxramp
+from ics.utils.sps import hxramp
 from hxActor.Commands import ramp
 from hxActor.Commands import rampSim
 
