@@ -662,7 +662,7 @@ class HxCmd(object):
         colLabels = ['Measurement', 'Voltage(V)', 'Current(mA)', 'Power(mW)']
         rowLabels = ['VDDA', 'Vref', 'VDD3p3', 'VDD', 'VDDIO']
 
-        nBanks = 4
+        nBanks = 1
         nChan = 5
         for bank_i in range(nBanks):
             if bank_i > 0:
@@ -676,7 +676,7 @@ class HxCmd(object):
                 bankPower += W[meas_i]
             cmd.inform('text="bank %d total: %0.3fW"' % (bank_i, bankPower/1000.0))
 
-        cmd.finish('text="see log for telemetry"')
+        cmd.finish()
 
     def lamp(self, lamp, lampPower, cmd):
         if self.actor.ids.camName != 'n8':
@@ -785,7 +785,7 @@ class HxCmd(object):
                 ref = data*0
 
         extnamePrefix = 'RESET_' if isResetRead else ''
-        cmd.inform(f'text="adding to ramp FITS file at group={group} read={read} reset={isResetRead} shape={data.shape} ref={ref.shape}, med={np.median(data)}"')
+        cmd.inform(f'text="adding HDUs at group={group} read={read} isReset={isResetRead} shape={data.shape} ref={data.shape} med={np.median(data)}"')
         self.rampBuffer.addHdu(data, hdr, hduId=(ramp, group, read),
                                 extname=f'{extnamePrefix}IMAGE_{read}')
         if ref is not None:
@@ -793,7 +793,7 @@ class HxCmd(object):
                                     extname=f'{extnamePrefix}REF_{read}')
 
     def takeOrSimRamp(self, cmd):
-        """Take a ramp"""
+        """Take a ramp, either from real DAQ/detector or from the simulator. """
 
         if self.actor.simulateOnly:
             self.simulateRamp(cmd)
