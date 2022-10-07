@@ -29,6 +29,15 @@ reload(fitsWriter)
 reload(hxramp)
 reload(ramp)
 reload(rampSim)
+
+def isoTs(t=None):
+    if t is None:
+        ts = pfsTime.Time.now()
+    else:
+        ts = pfsTime.Time.fromtimestamp(t)
+
+    return ts.isoformat()
+
 class HxCmd(object):
 
     def __init__(self, actor):
@@ -924,13 +933,16 @@ class HxCmd(object):
                     global t0
                     self.setHxCards(ramp, group, read)
 
-                    cmd.inform(f'text="cb ramp={ramp} group={group} read={read} image={image is not None} outputReset={outputReset}"')
+                    cmd.debug(f'text="cb ramp={ramp} group={group} read={read} image={image is not None} outputReset={outputReset}"')
                     if ramp == 0 and group == 0 and read == 0:
                         cmd.inform(f'text="DAQ output start"')
                         t0 = time.time()
                         self.readTime = self.calcFrameTime()
-                        self.read0time = t0 + nreset*self.readTime
-                        cmd.inform(f'readTimes={t0:0.3f},{self.read0time:0.3f},{self.readTime:0.3f}')
+                        self.read0Start = t0 + nreset*self.readTime
+                        resetStartStamp = isoTs(t0)
+                        read0StartStamp = isoTs(self.read0Start)
+
+                        cmd.inform(f'readTimes={visit},{resetStartStamp},{read0StartStamp},{self.readTime:0.3f}')
                         return
 
                     # We are starting a ramp: either with a reset read to write or without.
@@ -972,7 +984,7 @@ class HxCmd(object):
                     hdr = self.getPfsHeader(visit=visit, exptype=exptype,
                                             objname=objname, fullHeader=False, cmd=cmd)
                     self.writeSingleRead(cmd, image, hdr, ramp, group, read, nChannel, irpOffset,
-                                        rawImage=rawImage, rowSequence=rowSequence, isResetRead=False)
+                                         rawImage=rawImage, rowSequence=rowSequence, isResetRead=False)
                     if read == nread:
                         self.rampBuffer.finishFile()
                         if lampPower != 0:
