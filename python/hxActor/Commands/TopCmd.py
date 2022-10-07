@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+import logging
+
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
 from opscore.utility.qstr import qstr
@@ -18,10 +20,15 @@ class TopCmd(object):
         self.vocab = [
             ('ping', '', self.ping),
             ('status', '', self.status),
+            ('setLogger', '<log> <level>', self.setLogger),
         ]
 
         # Define typed command arguments for the above commands.
         self.keys = keys.KeysDictionary("mcs_mcs", (1, 1),
+                                        keys.Key("log", types.String(), default=None,
+                                                 help='the logger name'),
+                                        keys.Key("level", types.Int(), default=None,
+                                                 help='the logger level'),
                                         )
 
 
@@ -39,3 +46,19 @@ class TopCmd(object):
         cmd.inform('text="Present!"')
         cmd.finish()
 
+    def setLogger(self, cmd):
+        """Query the actor for liveness/happiness."""
+
+        cmdKeys = cmd.cmd.keywords
+
+        log = cmdKeys['log'].values[0]
+        level = cmdKeys['level'].values[0]
+
+        try:
+            logger = logging.getLogger(log)
+        except Exception as e:
+            cmd.fail(f'text="no logger named {log}: {e}"')
+            return
+
+        logger.setLevel(level)
+        cmd.finish()
