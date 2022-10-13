@@ -926,6 +926,8 @@ class HxCmd(object):
                 nChannel = hxConfig.numOutputs
                 if hxConfig.h4Interleaving:
                     irpOffset = hxConfig.interleaveOffset
+                else:
+                    irpOffset = 0
                 def readCB(ramp, group, read, filename, image,
                            lamp=lamp, lampPower=lampPower,
                            rowSequence=rowSequence):
