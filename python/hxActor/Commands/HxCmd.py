@@ -74,7 +74,7 @@ class HxCmd(object):
             ('setVoltage', '<name> <voltage>', self.setVoltage),
             ('ramp',
              '[<nramp>] [<nreset>] [<nread>] [<ngroup>] [<ndrop>] [<itime>] '
-             '[<visit>] [<exptype>] [<objname>] '
+             '[<visit>] [<exptype>] [<objname>] [<expectedExptime>] '
              '[<lamp>] [<lampPower>] [<readoutSize>] [@noOutputReset] [@rawImage]',
              self.takeOrSimRamp),
             ('reloadLogic', '', self.reloadLogic),
@@ -104,6 +104,8 @@ class HxCmd(object):
                                                  help='number of drops to waste.'),
                                         keys.Key("itime", types.Float(), default=None,
                                                  help='desired integration time'),
+                                        keys.Key("expectedExptime", types.Float(), default=None,
+                                                 help='expected actual illumination time'),
                                         keys.Key("exptype", types.String(), default=None,
                                                  help='What to put in IMAGETYP/DATA-TYP.'),
                                         keys.Key("objname", types.String(), default=None,
@@ -1238,14 +1240,27 @@ class HxCmd(object):
 
         return allCards
 
-    def getTimeCards(self, cmd):
+    def getTimeCards(self, cmd, exptype=''):
+        """Get all Subaru-compliant FITS time cards. """
+
+        cmdKeys = cmd.cmd.keywords
+
         t0 = time.time()
         fullRampTime = actortime.TimeCards()
         frameTime = self.calcFrameTime()
+
         expTime = self.nread*frameTime
+        darkTime = expTime
+
+        # The spsActor may tell us what the real exposure time will be. Use that if available
+        # and we are not just taking a dark.
+        if exptype.lower() != 'dark' and 'expectedExptime' in cmdKeys:
+            expTime = float(cmdKeys['expectedExptime'].values[0])
+
         fullRampTime.end(expTime=expTime)
         timecards = fullRampTime.getCards()
         timecards.append(dict(name='EXPTIME', value=expTime))
+        timecards.append(dict(name='DARKTIME', value=darkTime))
 
         t1 = time.time()
         if t1 - t0 > 1:
@@ -1267,7 +1282,7 @@ class HxCmd(object):
                 allCards.append(dict(name='OBJECT',
                                      value=objname,
                                      comment='user-specified name'))
-            timeCards = self.getTimeCards(cmd=cmd)
+            timeCards = self.getTimeCards(cmd=cmd, exptype=exptype)
             allCards.extend(timeCards)
 
             allCards.extend(spsFits.getSpsSpectroCards('n'))
