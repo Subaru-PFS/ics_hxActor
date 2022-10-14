@@ -29,6 +29,7 @@ reload(fitsWriter)
 reload(hxramp)
 reload(ramp)
 reload(rampSim)
+reload(spsFits)
 
 def isoTs(t=None):
     if t is None:
@@ -1273,34 +1274,39 @@ class HxCmd(object):
                      fullHeader=True, cmd=None):
 
         allCards = []
-        allCards.append(dict(name='DATA-TYP',
-                             value=exptype.upper(),
-                             comment='Subaru-style exposure type'))
+        if fullHeader:
+            allCards.append(dict(name='DATA-TYP',
+                                 value=exptype.upper(),
+                                 comment='Subaru-style exposure type'))
 
         if fullHeader:
-            if objname is not None:
-                allCards.append(dict(name='OBJECT',
-                                     value=objname,
-                                     comment='user-specified name'))
-            timeCards = self.getTimeCards(cmd=cmd, exptype=exptype)
-            allCards.extend(timeCards)
+            hdrMgr = spsFits.SpsFits(self.actor, cmd, exptype)
 
-            allCards.extend(spsFits.getSpsSpectroCards('n'))
+            timeCards = self.getTimeCards(cmd=cmd, exptype=exptype)
+
+            newCards = hdrMgr.finishHeaderKeys(cmd, visit, timeCards)
+            self.logger.info(f'new header: {newCards}')
+            allCards.extend(newCards)
 
             hxCards = self.genAllH4Cards(cmd)
             allCards.extend(hxCards)
             if self.actor.ids.site == 'J':
                 allCards.extend(self.genJhuCards(cmd))
 
-            mhsCards = self._getMhsHeader(cmd)
             if objname is not None:
-                mhsCards = [c for c in mhsCards if c['name'] != 'OBJECT']
-            allCards.extend(mhsCards)
+                allCards.append(dict(name='OBJECT',
+                                     value=objname,
+                                     comment='user-specified name'))
+
+            # mhsCards = self._getMhsHeader(cmd)
+            # if objname is not None:
+            #     mhsCards = [c for c in mhsCards if c['name'] != 'OBJECT']
+
         else:
             allCards.append(dict(name='INHERIT', value=True))
             allCards.extend(wcs.pixelWcsCards())
-        hxCards = self._getHxHeader(cmd)
-        allCards.extend(hxCards)
+        hxReadCards = self._getHxHeader(cmd)
+        allCards.extend(hxReadCards)
 
         return allCards
 

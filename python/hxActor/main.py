@@ -28,7 +28,7 @@ class OurActor(actorcore.ICC.ICC):
         else:
             name = "hx"
             modelNames = ('hx', 'charis')
-            
+
         # This sets up the connections to/from the hub, the logger, and the twisted reactor.
         #
         print(f'configuring for {name}, camera={self.ids.camName} instrument={instrument} ids={self.ids.idDict}')
@@ -64,7 +64,7 @@ class OurActor(actorcore.ICC.ICC):
             self.attachAllControllers()
             self.everConnected = True
 
-            models = ['gen2', 'pfilamps', 'dcb']
+            models = ['iic', 'sps', 'gen2', 'pfilamps', 'dcb', 'dcb2']
             models.extend([m % self.ids.idDict for m in ('enu_%(specName)s',)])
             models.extend([f'xcu_{self.piepanName}'])
             models.extend([f'hx_{self.piepanName}'])
