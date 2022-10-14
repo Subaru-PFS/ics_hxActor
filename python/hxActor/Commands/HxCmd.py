@@ -1285,7 +1285,6 @@ class HxCmd(object):
             timeCards = self.getTimeCards(cmd=cmd, exptype=exptype)
 
             newCards = hdrMgr.finishHeaderKeys(cmd, visit, timeCards)
-            self.logger.info(f'new header: {newCards}')
             allCards.extend(newCards)
 
             hxCards = self.genAllH4Cards(cmd)

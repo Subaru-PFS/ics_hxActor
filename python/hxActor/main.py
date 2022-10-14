@@ -51,6 +51,16 @@ class OurActor(actorcore.ICC.ICC):
 
         self.everConnected = False
 
+    @property
+    def enuModel(self):
+        enuName = f'enu_{self.piepanName}'
+        return self.models[enuName]
+
+    @property
+    def xcuModel(self):
+        xcuName = f'xcu_{self.piepanName}'
+        return self.models[xcuName]
+
     def connectionMade(self):
         if self.everConnected is False:
             if self.simulateOnly:
@@ -71,7 +81,7 @@ class OurActor(actorcore.ICC.ICC):
 
             if self.ids.idDict['site'] == 'J':
                 models.append('idg')
-                
+
             self.logger.info('adding models: %s', models)
             self.addModels(models)
             self.logger.info('added models: %s', self.models.keys())
