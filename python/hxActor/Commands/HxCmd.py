@@ -810,7 +810,7 @@ class HxCmd(object):
         nread = cmdKeys['nread'].values[0] if ('nread' in cmdKeys) else 2
         ndrop = cmdKeys['ndrop'].values[0] if ('ndrop' in cmdKeys) else 0
         ngroup = cmdKeys['ngroup'].values[0] if ('ngroup' in cmdKeys) else 1
-        visit = cmdKeys['visit'].values[0] if ('visit' in cmdKeys) else 9999
+        visit = int(cmdKeys['visit'].values[0]) if ('visit' in cmdKeys) else 9999
 
         if nread < 1 or ngroup != 1 or ndrop != 0 or nreset not in {0,1} or 'noOutputReset' in cmdKeys:
             cmd.fail('text="will only simulate simple ramps (ngroup=1, nreset<=1, ndrop=0, nread>0"')
@@ -1217,7 +1217,7 @@ class HxCmd(object):
 
         _replaceCard(cards, dict(name='W_H4NCHN', value=int(cfg.numOutputs),
                                  comment='how many readout channels we have'))
-        _replaceCard(cards, dict(name='W_H4GNST', value=float(cfg.preampGain),
+        _replaceCard(cards, dict(name='W_H4GNST', value=int(cfg.preampGain),
                                  comment='the ASIC preamp gain setting'))
         _replaceCard(cards, dict(name='W_H4GAIN', value=self.sam.getGainFromTable(cfg.preampGain),
                                  comment='the ASIC preamp gain factor'))
