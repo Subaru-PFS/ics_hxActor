@@ -4,6 +4,7 @@ from importlib import reload
 
 import logging
 import os.path
+import pickle
 import time
 
 import numpy as np
@@ -1307,6 +1308,14 @@ class HxCmd(object):
         hxReadCards = self._getHxHeader(cmd)
         allCards.extend(hxReadCards)
 
+        keep = []
+        for c in allCards:
+            try:
+                _ = pickle.dumps(c)
+                keep.append(c)
+            except:
+                cmd.warn(f'text="dropping bad card: {c}"')
+        allCards = keep
         return allCards
 
     def getResetHeader(self, cmd):
