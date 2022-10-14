@@ -53,7 +53,7 @@ class OurActor(actorcore.ICC.ICC):
 
     @property
     def enuModel(self):
-        enuName = f'enu_{self.piepanName}'
+        enuName = 'enu_%(specName)s' % self.ids.idDict
         return self.models[enuName]
 
     @property
