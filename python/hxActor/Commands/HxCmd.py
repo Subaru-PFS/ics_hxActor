@@ -961,7 +961,7 @@ class HxCmd(object):
 
                         phdr = self.getPfsHeader(visit=visit, exptype=exptype,
                                                  objname=objname, cmd=cmd)
-                        self.logger.info(f'filename={filename}')
+                        self.logger.info(f'filename={rampFilename}')
                         self.rampBuffer.createFile(rampReporter, rampFilename, phdr)
 
                         doResetRead = True
@@ -1208,16 +1208,16 @@ class HxCmd(object):
                                  comment='[s] individual read time, per ASIC'))
         _replaceCard(cards, dict(name="W_H4FRMT", value=frameTime,
                                  comment='[s] individual read time, per ASIC'))
-        _replaceCard(cards, dict(name='W_H4IRP', value=cfg.h4Interleaving,
+        _replaceCard(cards, dict(name='W_H4IRP', value=int(cfg.h4Interleaving),
                                  comment='whether we are using IRP-enabled firmware'))
-        _replaceCard(cards, dict(name='W_H4IRPN', value=cfg.interleaveRatio,
+        _replaceCard(cards, dict(name='W_H4IRPN', value=int(cfg.interleaveRatio),
                                  comment='the number of data pixels per ref pixel'))
-        _replaceCard(cards, dict(name='W_H4IRPO', value=cfg.interleaveOffset,
+        _replaceCard(cards, dict(name='W_H4IRPO', value=int(cfg.interleaveOffset),
                                  comment='how many data pixels before the ref pixel'))
 
-        _replaceCard(cards, dict(name='W_H4NCHN', value=cfg.numOutputs,
+        _replaceCard(cards, dict(name='W_H4NCHN', value=int(cfg.numOutputs),
                                  comment='how many readout channels we have'))
-        _replaceCard(cards, dict(name='W_H4GNST', value=cfg.preampGain,
+        _replaceCard(cards, dict(name='W_H4GNST', value=float(cfg.preampGain),
                                  comment='the ASIC preamp gain setting'))
         _replaceCard(cards, dict(name='W_H4GAIN', value=self.sam.getGainFromTable(cfg.preampGain),
                                  comment='the ASIC preamp gain factor'))
