@@ -4,6 +4,7 @@ from importlib import reload
 
 import logging
 import os.path
+import pickle
 import time
 
 import numpy as np
@@ -29,6 +30,7 @@ reload(fitsWriter)
 reload(hxramp)
 reload(ramp)
 reload(rampSim)
+reload(spsFits)
 
 def isoTs(t=None):
     if t is None:
@@ -809,7 +811,7 @@ class HxCmd(object):
         nread = cmdKeys['nread'].values[0] if ('nread' in cmdKeys) else 2
         ndrop = cmdKeys['ndrop'].values[0] if ('ndrop' in cmdKeys) else 0
         ngroup = cmdKeys['ngroup'].values[0] if ('ngroup' in cmdKeys) else 1
-        visit = cmdKeys['visit'].values[0] if ('visit' in cmdKeys) else 9999
+        visit = int(cmdKeys['visit'].values[0]) if ('visit' in cmdKeys) else 9999
 
         if nread < 1 or ngroup != 1 or ndrop != 0 or nreset not in {0,1} or 'noOutputReset' in cmdKeys:
             cmd.fail('text="will only simulate simple ramps (ngroup=1, nreset<=1, ndrop=0, nread>0"')
@@ -960,7 +962,7 @@ class HxCmd(object):
 
                         phdr = self.getPfsHeader(visit=visit, exptype=exptype,
                                                  objname=objname, cmd=cmd)
-                        self.logger.info(f'filename={filename}')
+                        self.logger.info(f'filename={rampFilename}')
                         self.rampBuffer.createFile(rampReporter, rampFilename, phdr)
 
                         doResetRead = True
@@ -1207,16 +1209,16 @@ class HxCmd(object):
                                  comment='[s] individual read time, per ASIC'))
         _replaceCard(cards, dict(name="W_H4FRMT", value=frameTime,
                                  comment='[s] individual read time, per ASIC'))
-        _replaceCard(cards, dict(name='W_H4IRP', value=cfg.h4Interleaving,
+        _replaceCard(cards, dict(name='W_H4IRP', value=int(cfg.h4Interleaving),
                                  comment='whether we are using IRP-enabled firmware'))
-        _replaceCard(cards, dict(name='W_H4IRPN', value=cfg.interleaveRatio,
+        _replaceCard(cards, dict(name='W_H4IRPN', value=int(cfg.interleaveRatio),
                                  comment='the number of data pixels per ref pixel'))
-        _replaceCard(cards, dict(name='W_H4IRPO', value=cfg.interleaveOffset,
+        _replaceCard(cards, dict(name='W_H4IRPO', value=int(cfg.interleaveOffset),
                                  comment='how many data pixels before the ref pixel'))
 
-        _replaceCard(cards, dict(name='W_H4NCHN', value=cfg.numOutputs,
+        _replaceCard(cards, dict(name='W_H4NCHN', value=int(cfg.numOutputs),
                                  comment='how many readout channels we have'))
-        _replaceCard(cards, dict(name='W_H4GNST', value=cfg.preampGain,
+        _replaceCard(cards, dict(name='W_H4GNST', value=int(cfg.preampGain),
                                  comment='the ASIC preamp gain setting'))
         _replaceCard(cards, dict(name='W_H4GAIN', value=self.sam.getGainFromTable(cfg.preampGain),
                                  comment='the ASIC preamp gain factor'))
@@ -1273,35 +1275,47 @@ class HxCmd(object):
                      fullHeader=True, cmd=None):
 
         allCards = []
-        allCards.append(dict(name='DATA-TYP',
-                             value=exptype.upper(),
-                             comment='Subaru-style exposure type'))
+        if fullHeader:
+            allCards.append(dict(name='DATA-TYP',
+                                 value=exptype.upper(),
+                                 comment='Subaru-style exposure type'))
 
         if fullHeader:
-            if objname is not None:
-                allCards.append(dict(name='OBJECT',
-                                     value=objname,
-                                     comment='user-specified name'))
-            timeCards = self.getTimeCards(cmd=cmd, exptype=exptype)
-            allCards.extend(timeCards)
+            hdrMgr = spsFits.SpsFits(self.actor, cmd, exptype)
 
-            allCards.extend(spsFits.getSpsSpectroCards('n'))
+            timeCards = self.getTimeCards(cmd=cmd, exptype=exptype)
+
+            newCards = hdrMgr.finishHeaderKeys(cmd, visit, timeCards)
+            allCards.extend(newCards)
 
             hxCards = self.genAllH4Cards(cmd)
             allCards.extend(hxCards)
             if self.actor.ids.site == 'J':
                 allCards.extend(self.genJhuCards(cmd))
 
-            mhsCards = self._getMhsHeader(cmd)
             if objname is not None:
-                mhsCards = [c for c in mhsCards if c['name'] != 'OBJECT']
-            allCards.extend(mhsCards)
+                allCards.append(dict(name='OBJECT',
+                                     value=objname,
+                                     comment='user-specified name'))
+
+            # mhsCards = self._getMhsHeader(cmd)
+            # if objname is not None:
+            #     mhsCards = [c for c in mhsCards if c['name'] != 'OBJECT']
+
         else:
             allCards.append(dict(name='INHERIT', value=True))
             allCards.extend(wcs.pixelWcsCards())
-        hxCards = self._getHxHeader(cmd)
-        allCards.extend(hxCards)
+        hxReadCards = self._getHxHeader(cmd)
+        allCards.extend(hxReadCards)
 
+        keep = []
+        for c in allCards:
+            try:
+                _ = pickle.dumps(c)
+                keep.append(c)
+            except:
+                cmd.warn(f'text="dropping bad card: {c}"')
+        allCards = keep
         return allCards
 
     def getResetHeader(self, cmd):

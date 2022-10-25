@@ -28,7 +28,7 @@ class OurActor(actorcore.ICC.ICC):
         else:
             name = "hx"
             modelNames = ('hx', 'charis')
-            
+
         # This sets up the connections to/from the hub, the logger, and the twisted reactor.
         #
         print(f'configuring for {name}, camera={self.ids.camName} instrument={instrument} ids={self.ids.idDict}')
@@ -51,6 +51,16 @@ class OurActor(actorcore.ICC.ICC):
 
         self.everConnected = False
 
+    @property
+    def enuModel(self):
+        enuName = 'enu_%(specName)s' % self.ids.idDict
+        return self.models[enuName]
+
+    @property
+    def xcuModel(self):
+        xcuName = f'xcu_{self.piepanName}'
+        return self.models[xcuName]
+
     def connectionMade(self):
         if self.everConnected is False:
             if self.simulateOnly:
@@ -64,14 +74,14 @@ class OurActor(actorcore.ICC.ICC):
             self.attachAllControllers()
             self.everConnected = True
 
-            models = ['gen2', 'pfilamps', 'dcb']
+            models = ['iic', 'sps', 'gen2', 'pfilamps', 'dcb', 'dcb2']
             models.extend([m % self.ids.idDict for m in ('enu_%(specName)s',)])
             models.extend([f'xcu_{self.piepanName}'])
             models.extend([f'hx_{self.piepanName}'])
 
             if self.ids.idDict['site'] == 'J':
                 models.append('idg')
-                
+
             self.logger.info('adding models: %s', models)
             self.addModels(models)
             self.logger.info('added models: %s', self.models.keys())
