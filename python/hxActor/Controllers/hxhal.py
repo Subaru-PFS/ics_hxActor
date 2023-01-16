@@ -63,8 +63,8 @@ class hxhal(object):
             link = linkType
             samId = None
         else:
-            link = self.actor.config.get('hxhal', 'link')
-            samId = int(self.actor.config.get('hxhal', 'samId'))
+            link = self.actor.actorConfig.get('link', 'usb')
+            samId = self.actor.actorConfig['serialNumbers']['sam']
         cmd.inform('text="connecting to instrument=%s link=%s samId=%s"' % (instrumentName, link, samId))
         self.sam = samControl.SAM(linkType=link, deviceId=samId,
                                   bouncePower=False,
@@ -122,14 +122,14 @@ class hxhal(object):
                 instrumentName = self.actor.instrument
 
             if linkType is None:
-                linkType = self.actor.config.get('hxhal', 'link')
-                samId = int(self.actor.config.get('hxhal', 'samId'))
+                linkType = self.actor.actorConfig.get('link', 'usb')
+                samId = self.actor.actorConfig['serialNumbers']['sam']
             else:
                 samId = None
 
             if firmwareName is None:
                 try:
-                    firmwareName = self.actor.config.get('hxhal', 'firmware')
+                    firmwareName = self.actor.actorConfig['asicFirmware']
                     initArgs['asicRegisterFile'] = firmwareName
                 except Exception as e:
                     self.logger.warn('no firmware config:', e)
@@ -139,7 +139,7 @@ class hxhal(object):
 
             if configName is None:
                 try:
-                    configName = self.actor.config.get('hxhal', 'hxconfig')
+                    configName = self.actor.actorConfig['configName']
                 except Exception as e:
                     self.logger.warn('no hxconfig config:', e)
                     cmd.warn(f'text="no hxconfig config: {e}"')

@@ -851,7 +851,7 @@ class HxCmd(object):
             cmd.fail('text="idleModeOption must be 0..2"')
             return
 
-        if outputReset and nreset != 1:
+        if outputReset and nreset > 1:
             cmd.fail('text="can only output single reset reads."')
             return
 

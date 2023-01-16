@@ -42,7 +42,7 @@ class OurActor(actorcore.ICC.ICC):
         self.simulateOnly = self.actorConfig.get('simulator', False)
 
         try:
-            imageCamName = self.config.get(self.name, 'imageCamName')
+            imageCamName = self.actorConfig['imageCamName']
             self.ids = spectroIds.SpectroIds(partName=imageCamName)
             self.logger.warning(f'RECONFIGURED for imageCam {imageCamName}')
         except Exception as e:
@@ -70,7 +70,7 @@ class OurActor(actorcore.ICC.ICC):
 
             self.logger.info(f'{self.name} ids: {self.ids.idDict}')
             self.logger.info("Attaching all controllers...")
-            self.allControllers = [s.strip() for s in self.config.get(self.name, 'startingControllers').split(',')]
+            self.allControllers = self.actorConfig['controllers']['starting']
             self.attachAllControllers()
             self.everConnected = True
 
