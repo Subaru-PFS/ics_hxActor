@@ -1256,7 +1256,22 @@ class HxCmd(object):
         return allCards
 
     def getTimeCards(self, cmd, exptype=''):
-        """Get all Subaru-compliant FITS time cards. """
+        """Get all Subaru-compliant FITS time cards.
+
+        Args
+        ----
+        cmd : `Command`
+          Command to report warnings back to
+        exptype : `str`
+          Exposure type -- if not `dark` we let sps tell us what the exposure time is.
+
+        Returns
+        -------
+        timecards : list of fitsio-compliant dicts
+          all the time cards to insert in the header
+        expTime : `float`
+          our best guess of the actual illumination time.
+        """
 
         cmdKeys = cmd.cmd.keywords
 
@@ -1280,7 +1295,7 @@ class HxCmd(object):
         t1 = time.time()
         if t1 - t0 > 1:
             cmd.warn(f'text="it took {t1-t0:0.2f} seconds to fetch time cards!"')
-        return timecards
+        return timecards, expTime
 
     def getPfsHeader(self, visit=None,
                      exptype='TEST',
@@ -1296,9 +1311,9 @@ class HxCmd(object):
         if fullHeader:
             hdrMgr = spsFits.SpsFits(self.actor, cmd, exptype)
 
-            timeCards = self.getTimeCards(cmd=cmd, exptype=exptype)
+            timeCards, expTime = self.getTimeCards(cmd=cmd, exptype=exptype)
 
-            newCards = hdrMgr.finishHeaderKeys(cmd, visit, timeCards)
+            newCards = hdrMgr.finishHeaderKeys(cmd, visit, timeCards, expTime=expTime)
             allCards.extend(newCards)
 
             hxCards = self.genAllH4Cards(cmd)
