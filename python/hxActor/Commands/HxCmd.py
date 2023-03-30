@@ -154,8 +154,15 @@ class HxCmd(object):
             self.dataPrefix = "CRSA"
             filenameFunc = None
         else:
-            self.dataRoot = "/data/ramps"
-            self.dataPrefix = "PFJB"
+            try:
+                site = self.actor.ids.site
+                dataRoot = self.actor.actorConfig[site]['dataRoot']
+            except Exception as e:
+                raise RuntimeError(f'failed to fetch dataRoot for {site}: {e}')
+
+            self.dataRoot = dataRoot
+            self.dataPrefix = None
+            self.logger.info(f'using dataRoot={self.dataRoot} at site={site}')
 
             # We want the fits writing process to be persistent, mostly so that
             # we do not have to pay attention to when it finishes.
