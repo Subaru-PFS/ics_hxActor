@@ -2,6 +2,7 @@ setupRequired(ics_actorkeys)
 setupRequired(tron_actorcore)
 setupRequired(hxhal)
 setupRequired(pfs_instdata)
+setupRequired(pfs_utils)
 setupOptional(ics_xcu_fpga)
 
 pathPrepend(PATH, ${PRODUCT_DIR}/bin)
