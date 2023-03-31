@@ -157,29 +157,41 @@ class HxCmd(object):
             try:
                 site = self.actor.ids.site
                 dataRoot = self.actor.actorConfig[site]['dataRoot']
+                dataManager = self.actor.actorConfig[site]['manager']
             except Exception as e:
                 raise RuntimeError(f'failed to fetch dataRoot for {site}: {e}')
 
             self.dataRoot = dataRoot
             self.dataPrefix = None
-            self.logger.info(f'using dataRoot={self.dataRoot} at site={site}')
+            self.logger.info(f'using dataRoot={self.dataRoot} and manager={dataManager} at site={site}')
 
             # We want the fits writing process to be persistent, mostly so that
             # we do not have to pay attention to when it finishes.
             self.rampBuffer = fitsWriter.FitsBuffer()
 
-            def filenameFunc(dataRoot, visit):
-                """ Return the ramp filename """
+            if dataManager == 'butler':
+                import pfs.utils.butler as pfsButler
+                reload(pfsButler)
+                butler = pfsButler.Butler(specIds=self.actor.ids)
 
-                # Write the full ramp
-                fileNameB = self.actor.ids.makeSpsFitsName(visit=visit, fileType='B')
-                return None, os.path.join(dataRoot, fileNameB)
+                def filenameFunc(dataRoot, visit, butler=butler, logger=self.logger):
+                    """ Return the ramp filename """
+
+                    fileNameB = butler.getPath('rampFile', visit=visit)
+                    logger.info(f'butler returned {fileNameB}')
+                    return None, fileNameB
+            else:
+                def filenameFunc(dataRoot, visit):
+                    """ Return the ramp filename """
+
+                    # Write the full ramp
+                    fileNameB = self.actor.ids.makeSpsFitsName(visit=visit, fileType='B')
+                    return None, os.path.join(dataRoot, fileNameB)
 
         from hxActor.charis import seqPath
         self.fileGenerator = seqPath.NightFilenameGen(self.dataRoot,
                                                       namesFunc = filenameFunc,
                                                       filePrefix=self.dataPrefix)
-
         self.everRun = False
 
     @property
