@@ -156,37 +156,31 @@ class HxCmd(object):
         else:
             try:
                 site = self.actor.ids.site
-                dataRoot = self.actor.actorConfig[site]['dataRoot']
-                dataManager = self.actor.actorConfig[site]['manager']
+                dataRoot = self.actor.actorConfig['dataRoot']
+                rampRoot = self.actor.actorConfig[site].get('rampRoot', None)
+                doCompress = self.actor.actorConfig[site].get('compress', True)
             except Exception as e:
-                raise RuntimeError(f'failed to fetch dataRoot for {site}: {e}')
+                raise RuntimeError(f'failed to fetch dataRoot, etc. for {site}: {e}')
 
             self.dataRoot = dataRoot
             self.dataPrefix = None
-            self.logger.info(f'using dataRoot={self.dataRoot} and manager={dataManager} at site={site}')
+            self.logger.info(f'using dataRoot={self.dataRoot} with rampRoot={rampRoot} site={site}')
 
             # We want the fits writing process to be persistent, mostly so that
             # we do not have to pay attention to when it finishes.
-            self.rampBuffer = fitsWriter.FitsBuffer()
+            doCompress = self.actor.actorConfig[site].get('compress', False)
+            self.rampBuffer = fitsWriter.FitsBuffer(doCompress=doCompress, rampRoot=rampRoot)
 
-            if dataManager == 'butler':
-                import pfs.utils.butler as pfsButler
-                reload(pfsButler)
-                butler = pfsButler.Butler(specIds=self.actor.ids)
+            import pfs.utils.butler as pfsButler
+            reload(pfsButler)
+            butler = pfsButler.Butler(specIds=self.actor.ids)
 
-                def filenameFunc(dataRoot, visit, butler=butler, logger=self.logger):
-                    """ Return the ramp filename """
+            def filenameFunc(dataRoot, visit, butler=butler, logger=self.logger):
+                """ Return the ramp filename """
 
-                    fileNameB = butler.getPath('rampFile', visit=visit)
-                    logger.info(f'butler returned {fileNameB}')
-                    return None, fileNameB
-            else:
-                def filenameFunc(dataRoot, visit):
-                    """ Return the ramp filename """
-
-                    # Write the full ramp
-                    fileNameB = self.actor.ids.makeSpsFitsName(visit=visit, fileType='B')
-                    return None, os.path.join(dataRoot, fileNameB)
+                fileNameB = butler.getPath('rampFile', visit=visit)
+                logger.info(f'butler returned {fileNameB}')
+                return None, fileNameB
 
         from hxActor.charis import seqPath
         self.fileGenerator = seqPath.NightFilenameGen(self.dataRoot,
