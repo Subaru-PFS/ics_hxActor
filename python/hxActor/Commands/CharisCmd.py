@@ -105,7 +105,7 @@ class CharisCmd(object):
     def hxconfig(self, cmd):
         """Set the given hxhal configuration. """
         
-        if self.backend is not 'hxhal' or self.controller is None:
+        if self.backend != 'hxhal' or self.controller is None:
             cmd.fail('text="No hxhal controller"')
             return
 
@@ -118,7 +118,7 @@ class CharisCmd(object):
         cmd.finish()
         
     def charisConfig(self, cmd):
-        if self.backend is not 'hxhal' or self.controller is None:
+        if self.backend != 'hxhal' or self.controller is None:
             cmd.fail('text="No hxhal controller"')
             return
 
