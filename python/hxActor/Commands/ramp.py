@@ -23,6 +23,16 @@ class Ramp(object):
         self.logger.info(f'{self.name}: createdFits: {reply}')
         self.cmd.inform(f'text="created {reply["path"]}')
 
+    def amendedPHDU(self, reply):
+        if reply['status'] != 'OK':
+            msg = f'failed to amend PDHU: {reply["errorDetails"]}'
+            self.cmd.warn(msg)
+            self.logger.warning(msg)
+            return
+
+        self.logger.info(f'{self.name}: amendedPHDU: {reply}')
+        self.cmd.inform(f'text="amended PHDU for current file')
+
     def wroteHdu(self, reply):
         """A read has been written to the FITS file. """
         if reply['status'] != 'OK':

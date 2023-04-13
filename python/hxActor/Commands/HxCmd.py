@@ -5,10 +5,12 @@ from importlib import reload
 import logging
 import os.path
 import pickle
+import threading
 import time
 
 import numpy as np
 
+import astropy.time
 import astropy.io.fits as pyfits
 
 import opscore.protocols.keys as keys
@@ -79,6 +81,7 @@ class HxCmd(object):
              '[<visit>] [<exptype>] [<objname>] [<expectedExptime>] '
              '[<lamp>] [<lampPower>] [<readoutSize>] [@noOutputReset] [@rawImage]',
              self.takeOrSimRamp),
+            ('ramp', 'finish [<exptime>] [<obstime>] [@stopRamp]', self.finishRamp),
             ('reloadLogic', '', self.reloadLogic),
             ('readAsic', '<reg> [<nreg>]', self.getAsicReg),
             ('writeAsic', '<reg> <value>', self.writeAsicReg),
@@ -106,8 +109,12 @@ class HxCmd(object):
                                                  help='number of drops to waste.'),
                                         keys.Key("itime", types.Float(), default=None,
                                                  help='desired integration time'),
+                                        keys.Key("exptime", types.Float(), default=None,
+                                                 help='real illumination time'),
                                         keys.Key("expectedExptime", types.Float(), default=None,
                                                  help='expected actual illumination time'),
+                                        keys.Key("obstime", types.String(), default=None,
+                                                 help='time at start of illumination.'),
                                         keys.Key("exptype", types.String(), default=None,
                                                  help='What to put in IMAGETYP/DATA-TYP.'),
                                         keys.Key("objname", types.String(), default=None,
@@ -864,10 +871,6 @@ class HxCmd(object):
             cmd.fail('text="idleModeOption must be 0..2"')
             return
 
-        if outputReset and nreset > 1:
-            cmd.fail('text="can only output single reset reads."')
-            return
-
         if lamp > 0 and not outputReset:
             cmd.fail('text="can only turn on lamps when saving reset reads."')
             return
@@ -897,9 +900,6 @@ class HxCmd(object):
                 return
             nread = int(itime / self.sam.frameTime) + 1
 
-        dosplit = 'splitRamps' in cmdKeys
-        nrampCmds = nramp if dosplit else 1
-
         if nread <= 0 or nramp <= 0 or ngroup <= 0:
             cmd.fail('text="all of nramp,ngroup,(nread or itime) must be positive"')
             return
@@ -926,6 +926,9 @@ class HxCmd(object):
                 return
 
             if self.actor.instrument == 'PFS':
+                runThreaded = True
+                self.doStopRamp = False
+                self.rampPatched = False
                 if nramp != 1:
                     raise ValueError("PFS can only take one ramp at a time")
 
@@ -945,142 +948,240 @@ class HxCmd(object):
                     irpOffset = hxConfig.interleaveOffset
                 else:
                     irpOffset = 0
+
                 def readCB(ramp, group, read, filename, image,
                            lamp=lamp, lampPower=lampPower,
                            rowSequence=rowSequence):
+                    """This is called by the DAQ routines at the end of each frame.
+
+                    Returns:
+                    --------
+                    continueRamp : `bool`
+                       whether the ramp should be allowed to continue.
+
+                    """
 
                     global t0
                     self.setHxCards(ramp, group, read)
 
-                    cmd.debug(f'text="cb ramp={ramp} group={group} read={read} image={image is not None} outputReset={outputReset}"')
+                    cmd.debug(f'text="cb ramp={ramp} group={group} read={read} '
+                              f'image={image is not None} outputReset={outputReset}"')
+
+                    # This call is made at the start of the RESET frame, and we use that to reference
+                    # and advertise our frame timing. In this case, there is no image data.
                     if ramp == 0 and group == 0 and read == 0:
-                        cmd.inform(f'text="DAQ output start"')
+                        cmd.debug('text="DAQ output start"')
                         t0 = time.time()
                         self.readTime = self.calcFrameTime()
                         self.read0Start = t0 + nreset*self.readTime
                         resetStartStamp = isoTs(t0)
-                        read0StartStamp = isoTs(self.read0Start)
-
-                        cmd.inform(f'readTimes={visit},{resetStartStamp},{read0StartStamp},{self.readTime:0.3f}')
-                        return
+                        self.read0StartStamp = isoTs(self.read0Start)
+                        self.exptime = nread * self.readTime
+                        cmd.inform(f'readTimes={visit},{resetStartStamp},{self.read0StartStamp},{self.readTime:0.3f}')
+                        return True
 
                     # We are starting a ramp: either with a reset read to write or without.
-                    # In either case, generate RESET HDU(s).
-                    if ((outputReset and group == 0 and read == nreset) or
-                            (not outputReset and group == 1 and read == 1)):
+                    # In either case, generate RESET HDU(s) if wanted.
+                    if ((outputReset and group == 0 and read == 1)
+                            or ((not outputReset or nreset == 0) and group == 1 and read == 1)):
                         cmd.inform(f'text="creating FITS files at group={group} read={read}"')
                         if lampPower != 0:
                             cmd.inform(f'text="turning on flat lamp {lamp}@{lampPower}"')
                             self.lamp(lamp, lampPower, cmd)
 
                         phdr = self.getPfsHeader(visit=visit, exptype=exptype,
+                                                 obstime=self.read0StartStamp,
                                                  objname=objname, cmd=cmd)
                         self.logger.info(f'filename={rampFilename}')
                         self.rampBuffer.createFile(rampReporter, rampFilename, phdr)
 
-                        doResetRead = True
-                        if outputReset and image is not None:
-                            resetImage = image
-                        else:
-                            resetImage = None
-                    else:
-                        doResetRead = False
-                        resetImage = None
-
-                    if read == nread-1:
+                    if group == ngroup-1 and read == nread-1:
                         self.getLastLampState(lamp, lampPower, cmd)
 
-                    # We have a new non-reset read.
-                    # If we should be writing the reset read do so before writing the real read.
-                    if doResetRead:
-                        resetImageToWrite = image*0 if resetImage is None else resetImage
-                        hdr = self.getResetHeader(cmd)
-                        self.writeSingleRead(cmd, resetImageToWrite, hdr, ramp, group, 1, nChannel, irpOffset,
-                                             rawImage=rawImage, rowSequence=rowSequence, isResetRead=True)
-                        if resetImage is not None:
-                            return
-
-                    hdr = self.getPfsHeader(visit=visit, exptype=exptype,
-                                            objname=objname, fullHeader=False, cmd=cmd)
-                    self.writeSingleRead(cmd, image, hdr, ramp, group, read, nChannel, irpOffset,
-                                         rawImage=rawImage, rowSequence=rowSequence, isResetRead=False)
-                    if read == nread:
+                    if group == 0:  # Reset read
+                        if outputReset:
+                            resetImageToWrite = 0 if image is None else image
+                            hdr = self.getResetHeader(cmd)
+                            self.writeSingleRead(cmd, resetImageToWrite, hdr, ramp, group, read, nChannel,
+                                                 irpOffset, rawImage=rawImage, rowSequence=rowSequence,
+                                                 isResetRead=True)
+                    else:       # Non reset read
+                        hdr = self.getPfsHeader(visit=visit, exptype=exptype,
+                                                objname=objname, fullHeader=False, cmd=cmd)
+                        self.writeSingleRead(cmd, image, hdr, ramp, group, read, nChannel, irpOffset,
+                                             rawImage=rawImage, rowSequence=rowSequence, isResetRead=False)
+                    if self.doStopRamp:
+                        cmd.warn(f'text="stopping ramp at read {read}..."')
+                        self.nread = read
+                        patchCards = [dict(name='W_H4NRED', value=read,
+                                           comment='Stopped number of ramp reads')]
+                        self.logger.info('amending PHDU nread...')
+                        self.rampBuffer.amendPHDU(patchCards)
+                        # sam.waitForAsicIdle()
+                    if group >= ngroup and read == nread or self.doStopRamp:
+                        self._doFinishRamp(cmd)
                         self.rampBuffer.finishFile()
                         if lampPower != 0:
                             self.lamp(lamp, 0, cmd)
+                        return self.doStopRamp is not True
+
+                    return True
             else:
+                runThreaded = False
                 sam.fileGenerator = self.fileGenerator
                 noFiles = False
                 rampReporter = None
-                timeCB = None
+
                 def readCB(ramp, group, read, filename, image):
                     cmd.inform('hxread=%s,%d,%d' % (filename, group, read))
                     if read == nread-1:
                         self.getLastState(lamp, lampPower, cmd)
                     if read == nread:
                         cmd.inform('filename=%s' % (filename))
+                    return True
 
                 def headerCB(ramp, group, read, seqno):
                     hdr = self.getCharisHeader(seqno=seqno, fullHeader=(read == 1), cmd=cmd)
                     return hdr.cards
-            sam.takeRamp(nResets=nreset, nReads=nread,
-                         noReturn=True, nRamps=nramp,
-                         seqno=visit, exptype=exptype,
-                         outputReset=outputReset,
-                         noFiles=noFiles,
-                         actualFrameSize=readoutSize,
-                         headerCallback=headerCB,
-                         readCallback=readCB)
-            sam.overrideFrameSize(None)
-            cmd.inform('text="acquisition done; waiting for files to be closed."')
-            t1 = time.time()
-            dt = t1-t0
-            cmd.inform('text="%d ramps, elapsed=%0.3f, perRamp=%0.3f, perRead=%0.3f"' %
-                       (nramp, dt, dt/nramp, dt/(nramp*(nread+nreset+ndrop))))
-            # Now possibly wait on the fitsWriter processes.
-            if rampReporter is not None:
-                waitFor = 60
-                waitUntil = time.time() + waitFor
-                while True:
-                    if rampReporter.isFinished:
-                        break
-                    now = time.time()
-                    if now > waitUntil:
-                        cmd.warn(f'text="file writing process did not finish within {waitFor} seconds"')
-                        break
-                    time.sleep(0.5)
+
+            rampArgs = (cmd, sam, nramp, nreset, nread, ndrop, visit,
+                        exptype, outputReset, readoutSize,
+                        noFiles, rampReporter, headerCB, readCB, t0)
+            if runThreaded:
+                cmd.debug(f'text="launching ramp thread, with {len(threading.enumerate())} active threads: {threading.enumerate()}"')
+                rampThread = threading.Thread(target=self.runRamp, name=f'ramp_{visit}',
+                                              args=rampArgs, daemon=True)
+                cmd.inform('text="starting ramp thread"')
+                rampThread.start()
+            else:
+                self.runRamp(*rampArgs)
+
         else:
-            self.flushProgramInput(cmd, doFinish=False)
+            # Use the Windows/IDL Teledyne server.
+            dosplit = 'splitRamps' in cmdKeys
+            self.winRead(cmd, nramp, nreset, nread, ngroup, ndrop, dosplit)
 
-            ctrlr = self.controller
-            ret = ctrlr.sendOneCommand('setRampParam(%d,%d,%d,%d,%d)' %
-                                       (nreset,nread,ngroup,ndrop,(1 if dosplit else nramp)),
-                                       cmd=cmd)
-            if ret != '0:succeeded':
-                cmd.fail('text="failed to configure for ramp: %s"' % (ret))
-                return
+    def runRamp(self, cmd, sam,
+                nramp, nreset, nread, ndrop, visit,
+                exptype, outputReset, readoutSize,
+                noFiles, rampReporter, headerCB, readCB, t0):
+        """Run and finish a fully prepared ramp.
 
-            self.winGetconfig(cmd, doFinish=False)
+        This method is intended to be callable as a Thread target.
+        """
+        sam.takeRamp(nResets=nreset, nReads=nread,
+                     noReturn=True, nRamps=nramp,
+                     seqno=visit, exptype=exptype,
+                     outputReset=outputReset,
+                     noFiles=noFiles,
+                     actualFrameSize=readoutSize,
+                     headerCallback=headerCB,
+                     readCallback=readCB)
+        sam.overrideFrameSize(None)
+        cmd.inform('text="acquisition done; waiting for files to be closed."')
+        t1 = time.time()
+        dt = t1-t0
+        cmd.inform('text="%d ramps, elapsed=%0.3f, perRamp=%0.3f, perRead=%0.3f"' %
+                   (nramp, dt, dt/nramp, dt/(nramp*(nread+nreset+ndrop))))
+        # Now possibly wait on the fitsWriter processes.
+        if rampReporter is not None:
+            waitFor = 60
+            waitUntil = time.time() + waitFor
+            while True:
+                if rampReporter.isFinished:
+                    break
+                now = time.time()
+                if now > waitUntil:
+                    cmd.warn(f'text="file writing process did not finish within {waitFor} seconds"')
+                    break
+                time.sleep(0.5)
+        t1 = time.time()
+        dt = t1-t0
+        cmd.finish('text="%d ramps, elapsed=%0.3f, perRamp=%0.3f, perRead=%0.3f"' %
+                   (nramp, dt, dt/nramp, dt/(nramp*(nread+nreset+ndrop))))
 
-            timeout = self._calcAcquireTimeout(expType='ramp')
-            if not dosplit:
-                timeout *= nramp
-            timeout += 10
+    def finishRamp(self, cmd):
+        """Prepare to finish a ramp. Optionally stop a ramp at the end of this read."""
 
-            t0 = time.time()
-            for r_i in range(nrampCmds):
-                cmd.inform('text="acquireramp command %d of %d"' % (r_i+1, nrampCmds))
-                ctrlr.sendOneCommand('acquireramp',
-                                     cmd=cmd,
-                                     timeout=timeout,
-                                     noResponse=True)
-                self._consumeRamps((1 if dosplit else nramp),
-                                   ngroup,nreset,nread,ndrop,
+        cmdKeys = cmd.cmd.keywords
+
+        exptime = float(cmdKeys['exptime'].values[0]) if ('exptime' in cmdKeys) else None
+        obstime = str(cmdKeys['obstime'].values[0]) if ('obstime' in cmdKeys) else self.read0StartStamp
+        doStopRamp = 'stopRamp' in cmdKeys
+
+        if doStopRamp:
+            self.doStopRamp = True
+
+        self._doFinishRamp(cmd, obstime, exptime)
+        cmd.finish(f'text="finishRamp: doStop={doStopRamp}"')
+
+    def _doFinishRamp(self, cmd, obstime=None, exptime=None):
+        """Patch the PHDU at the end of the ramp.
+
+        In regular PFS operation, iic will call this just after the shutter is closed, and will
+        provide obstime (exposure start) and exptime. This will let us update the following in
+        the PHDU:
+          - time cards
+          - lamp cards
+          - any _END cards
+        If the ramp is stopped, also update the W_H4NRED card.
+
+        WARNING: if a card is *added* to the PHDU, any later cards to patch will
+                 not be patched but instead added in duplicate to the PHDU.
+        """
+
+        if self.rampPatched:
+            return
+        self.rampPatched = True
+
+        patchCards = []
+
+        if exptime is not None and obstime is not None:
+            newTimeCards = self.getTimeCards(cmd, obstime=obstime, exptime=exptime)
+            patchCards.extend(newTimeCards)
+
+        newLampCards = self.hdrMgr.genLampCards(cmd, exptime)
+        patchCards.extend(newLampCards)
+        patchCards.append(dict(name='W_H4PTCH', value=True, comment='PHDU has been patched'))
+
+        for c in patchCards:
+            self.logger.info('  amending with %s:%s', type(c), c)
+        self.logger.info('amending PHDU...')
+        self.rampBuffer.amendPHDU(patchCards)
+
+    def winRead(self, cmd, nramp, nreset, nread, ngroup, ndrop, dosplit):
+        nrampCmds = nramp if dosplit else 1
+        self.flushProgramInput(cmd, doFinish=False)
+
+        ctrlr = self.controller
+        ret = ctrlr.sendOneCommand('setRampParam(%d,%d,%d,%d,%d)' %
+                                   (nreset,nread,ngroup,ndrop,(1 if dosplit else nramp)),
                                    cmd=cmd)
-                ret = ctrlr.getOneResponse(cmd=cmd)
-                if ret != '0:Ramp acquisition succeeded':
-                    cmd.fail('text="IDL gave unexpected response at end of ramp: %s"' % (ret))
-                    return
+        if ret != '0:succeeded':
+            cmd.fail('text="failed to configure for ramp: %s"' % (ret))
+            return
+
+        self.winGetconfig(cmd, doFinish=False)
+
+        timeout = self._calcAcquireTimeout(expType='ramp')
+        if not dosplit:
+            timeout *= nramp
+        timeout += 10
+
+        t0 = time.time()
+        for r_i in range(nrampCmds):
+            cmd.inform('text="acquireramp command %d of %d"' % (r_i+1, nrampCmds))
+            ctrlr.sendOneCommand('acquireramp',
+                                 cmd=cmd,
+                                 timeout=timeout,
+                                 noResponse=True)
+            self._consumeRamps((1 if dosplit else nramp),
+                               ngroup,nreset,nread,ndrop,
+                               cmd=cmd)
+            ret = ctrlr.getOneResponse(cmd=cmd)
+            if ret != '0:Ramp acquisition succeeded':
+                cmd.fail('text="IDL gave unexpected response at end of ramp: %s"' % (ret))
+                return
 
         t1 = time.time()
         dt = t1-t0
@@ -1216,6 +1317,12 @@ class HxCmd(object):
                     break
             cards.append(newCard)
 
+        def _replaceCardValue(cards, cardName, newValue):
+            for c_i, c in enumerate(cards):
+                if c['name'] == cardName:
+                    c['value'] = newValue
+                    break
+
         cfg = daqState.hxConfig
         frameTime = self.calcFrameTime()
         _replaceCard(cards, dict(name="W_FRMTIM", value=frameTime,
@@ -1246,6 +1353,14 @@ class HxCmd(object):
         _replaceCard(cards, dict(name='W_4FMTVR', value=ver,
                                  comment='Data format version'))
 
+        try:
+            serials = self.actor.actorConfig['serialNumbers']
+            _replaceCardValue(cards, 'W_SRH4', serials['h4'])
+            _replaceCardValue(cards, 'W_SRASIC', serials['asic'])
+            _replaceCardValue(cards, 'W_SRSAM', serials['sam'])
+        except Exception as e:
+            cmd.warn(f'text="failed to set H4 serial cards: {e}"')
+
         return cards
 
     def genJhuCards(self, cmd):
@@ -1255,36 +1370,57 @@ class HxCmd(object):
 
         return allCards
 
-    def getTimeCards(self, cmd, exptype=''):
+    def getTimeCards(self, cmd, exptype='', obstime=None, exptime=None):
         """Get all Subaru-compliant FITS time cards. """
 
         cmdKeys = cmd.cmd.keywords
 
         t0 = time.time()
-        fullRampTime = actortime.TimeCards()
+        if exptime is not None:
+            exptime = float(exptime)
+        if obstime is not None:
+            try:
+                obstime = astropy.time.Time(str(obstime))
+            except Exception as e:
+                cmd.warn(f'text="FAILED to parse obstime={obstime}: {e}"')
+                obstime = None
+        else:
+            try:
+                obstime = self.read0StartStamp
+            except:
+                pass
+
+        fullRampTime = actortime.TimeCards(startTime=obstime)
+
         frameTime = self.calcFrameTime()
+        rampExptime = self.nread*frameTime
 
-        expTime = self.nread*frameTime
-        darkTime = expTime
-
-        # The spsActor may tell us what the real exposure time will be. Use that if available
+        # The spsActor may tell us what the real exposure time is expected to be. Use that if available
         # and we are not just taking a dark.
         if exptype.lower() != 'dark' and 'expectedExptime' in cmdKeys:
-            expTime = float(cmdKeys['expectedExptime'].values[0])
+            exptime = float(cmdKeys['expectedExptime'].values[0])
+            darktime = rampExptime
+        elif exptime is None:
+            exptime = rampExptime
+            darktime = exptime
+        else:
+            darktime = rampExptime
 
-        fullRampTime.end(expTime=expTime)
-        timecards = fullRampTime.getCards()
-        timecards.append(dict(name='EXPTIME', value=expTime))
-        timecards.append(dict(name='DARKTIME', value=darkTime))
+        fullRampTime.end(expTime=exptime)
+
+        timecards = []
+        timecards.append(dict(name='EXPTIME', value=exptime))
+        timecards.append(dict(name='DARKTIME', value=darktime))
+        timecards.extend(fullRampTime.getCards())
 
         t1 = time.time()
         if t1 - t0 > 1:
             cmd.warn(f'text="it took {t1-t0:0.2f} seconds to fetch time cards!"')
-        return timecards
+        return timecards, exptime
 
     def getPfsHeader(self, visit=None,
                      exptype='TEST',
-                     objname=None,
+                     objname=None, obstime=None,
                      fullHeader=True, cmd=None):
 
         allCards = []
@@ -1294,11 +1430,13 @@ class HxCmd(object):
                                  comment='Subaru-style exposure type'))
 
         if fullHeader:
-            hdrMgr = spsFits.SpsFits(self.actor, cmd, exptype)
+            self.hdrMgr = hdrMgr = spsFits.SpsFits(self.actor, cmd, exptype)
 
-            timeCards = self.getTimeCards(cmd=cmd, exptype=exptype)
+            timeCards, exptime = self.getTimeCards(cmd=cmd, exptype=exptype,
+                                                   obstime=obstime)
 
-            newCards = hdrMgr.finishHeaderKeys(cmd, visit, timeCards)
+            newCards = hdrMgr.finishHeaderKeys(cmd, visit,
+                                               timeCards, exptime)
             allCards.extend(newCards)
 
             hxCards = self.genAllH4Cards(cmd)
