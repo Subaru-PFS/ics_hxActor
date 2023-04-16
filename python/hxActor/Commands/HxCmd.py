@@ -1137,7 +1137,7 @@ class HxCmd(object):
         patchCards = []
 
         if exptime is not None and obstime is not None:
-            newTimeCards = self.getTimeCards(cmd, obstime=obstime, exptime=exptime)
+            newTimeCards, exptime = self.getTimeCards(cmd, obstime=obstime, exptime=exptime)
             patchCards.extend(newTimeCards)
 
         newLampCards = self.hdrMgr.genLampCards(cmd, exptime)
@@ -1371,7 +1371,26 @@ class HxCmd(object):
         return allCards
 
     def getTimeCards(self, cmd, exptype='', obstime=None, exptime=None):
-        """Get all Subaru-compliant FITS time cards. """
+        """Get all Subaru-compliant FITS time cards.
+
+        Args
+        ----
+        cmd : `Command`
+          Command to report warnings back to
+        exptype : `str`
+          Exposure type -- if not `dark` we let sps tell us what the exposure time is.
+        obstime : `str`
+          The correct obstime, if we want to change it
+        exptime : `float`
+          The correct exposure time, if we want to change it
+
+        Returns
+        -------
+        timecards : list of fitsio-compliant dicts
+          all the time cards to insert in the header
+        expTime : `float`
+          our best guess of the actual illumination time.
+        """
 
         cmdKeys = cmd.cmd.keywords
 
