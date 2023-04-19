@@ -335,13 +335,16 @@ class HxCmd(object):
 
         keys = []
         if not cfg.h4Interleaving:
-            keys.append('irp=0,0,0')
+            keys.append('irp=False,0,0')
         else:
             keys.append(f'irp={cfg.h4Interleaving},{cfg.interleaveRatio},{cfg.interleaveOffset}')
         gainFactor = self.sam.getGainFromTable(cfg.preampGain)
         keys.append(f'preamp={cfg.preampGain},{gainFactor},{cfg.preampInputScheme},{cfg.preampInput},'
                     f'{cfg.preampInput1ByUser},{cfg.preampInput8ByUser}')
         keys.append(f'window={cfg.bWindowMode},{cfg.xStart},{cfg.xStop},{cfg.yStart},{cfg.yStop}')
+
+        readTime = self.calcFrameTime()
+        keys.append(f'readTime={readTime:0.4f}')
 
         try:
             keys.append(f'asicVersion={cfg.version}')
