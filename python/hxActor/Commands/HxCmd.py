@@ -175,7 +175,6 @@ class HxCmd(object):
 
             # We want the fits writing process to be persistent, mostly so that
             # we do not have to pay attention to when it finishes.
-            doCompress = self.actor.actorConfig[site].get('compress', False)
             self.rampBuffer = fitsWriter.FitsBuffer(doCompress=doCompress, rampRoot=rampRoot)
 
             import pfs.utils.butler as pfsButler
