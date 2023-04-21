@@ -1401,7 +1401,7 @@ class HxCmd(object):
             exptime = float(exptime)
         if obstime is not None:
             try:
-                obstime = astropy.time.Time(str(obstime))
+                obstime = pfsTime.Time.fromisoformat(str(obstime))
             except Exception as e:
                 cmd.warn(f'text="FAILED to parse obstime={obstime}: {e}"')
                 obstime = None
