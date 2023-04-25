@@ -1071,15 +1071,23 @@ class HxCmd(object):
 
         This method is intended to be callable as a Thread target.
         """
-        sam.takeRamp(nResets=nreset, nReads=nread,
-                     noReturn=True, nRamps=nramp,
-                     seqno=visit, exptype=exptype,
-                     outputReset=outputReset,
-                     noFiles=noFiles,
-                     actualFrameSize=readoutSize,
-                     headerCallback=headerCB,
-                     readCallback=readCB)
-        sam.overrideFrameSize(None)
+
+        try:
+            sam.takeRamp(nResets=nreset, nReads=nread,
+                         noReturn=True, nRamps=nramp,
+                         seqno=visit, exptype=exptype,
+                         outputReset=outputReset,
+                         noFiles=noFiles,
+                         actualFrameSize=readoutSize,
+                         headerCallback=headerCB,
+                         readCallback=readCB)
+        except Exception as e:
+            cmd.fail(f'text="ramp failed! -- {e}"')
+            return
+        finally:
+            sam.overrideFrameSize(None)
+            rampReporter.finishFile()
+
         cmd.inform('text="acquisition done; waiting for files to be closed."')
         t1 = time.time()
         dt = t1-t0
