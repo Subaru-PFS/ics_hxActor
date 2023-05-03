@@ -615,7 +615,7 @@ class HxCmd(object):
         return hdr
 
     def getHeader(self, frameId, fullHeader=True,
-                  exptype='TEST', objname='TEST',
+                  exptype='TEST',
                   timeout=1.0, cmd=None):
         try:
             hdr = self.getSubaruHeader(frameId, fullHeader=fullHeader,
@@ -626,7 +626,6 @@ class HxCmd(object):
             cmd.warn('text="failed to fetch Subaru header: %s"' % (e))
             hdr = pyfits.Header()
 
-        hdr.set('OBJECT', objname, before=1)
         hxCards = self.getHxCards(cmd)
         for c in hxCards:
             hdr.append(c)
@@ -861,7 +860,7 @@ class HxCmd(object):
         itime = cmdKeys['itime'].values[0] if ('itime' in cmdKeys) else None
         visit = cmdKeys['visit'].values[0] if ('visit' in cmdKeys) else 0
         exptype = cmdKeys['exptype'].values[0] if ('exptype' in cmdKeys) else 'TEST'
-        objname = str(cmdKeys['objname'].values[0]) if ('objname' in cmdKeys) else 'TEST'
+        objname = str(cmdKeys['objname'].values[0]) if ('objname' in cmdKeys) else None
         lamp = cmdKeys['lamp'].values[0] if ('lamp' in cmdKeys) else 0
         lampPower = cmdKeys['lampPower'].values[0] if ('lampPower' in cmdKeys) else 0
         readoutSize = cmdKeys['readoutSize'].values if ('readoutSize' in cmdKeys) else None
