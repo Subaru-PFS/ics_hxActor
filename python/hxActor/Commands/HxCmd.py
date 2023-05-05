@@ -176,6 +176,7 @@ class HxCmd(object):
             # We want the fits writing process to be persistent, mostly so that
             # we do not have to pay attention to when it finishes.
             self.rampBuffer = fitsWriter.FitsBuffer(doCompress=doCompress, rampRoot=rampRoot)
+            self.quicklookBuffer = fitsWriter.FitsBuffer(doCompress=doCompress, rampRoot=rampRoot)
 
             import pfs.utils.butler as pfsButler
             reload(pfsButler)
@@ -810,12 +811,19 @@ class HxCmd(object):
                 ref = data*0
 
         extnamePrefix = 'RESET_' if isResetRead else ''
-        cmd.inform(f'text="adding HDUs at group={group} read={read} isReset={isResetRead} shape={data.shape} ref={data.shape} med={np.median(data)}"')
+        cmd.inform(f'text="adding HDUs at group={group} read={read} isReset={isResetRead} shape={data.shape} '
+                   f'ref={data.shape} med={np.median(data)}"')
         self.rampBuffer.addHdu(data, hdr, hduId=(ramp, group, read),
-                                extname=f'{extnamePrefix}IMAGE_{read}')
+                               extname=f'{extnamePrefix}IMAGE_{read}')
         if ref is not None:
             self.rampBuffer.addHdu(ref, None, hduId=(ramp, group, None),
-                                    extname=f'{extnamePrefix}REF_{read}')
+                                   extname=f'{extnamePrefix}REF_{read}')
+
+    def writeQuicklookRead(self, cmd, image, hdr, visit,
+                           ramp, group, read, nread,
+                           nChannel, irpOffset):
+        """Write a quicklook file. """
+        pass
 
     def takeOrSimRamp(self, cmd):
         """Take a ramp, either from real DAQ/detector or from the simulator. """
@@ -950,6 +958,8 @@ class HxCmd(object):
                 else:
                     irpOffset = 0
 
+                quicklookRate = self.actor.actorConfig.get['quicklookRate', 0]
+
                 def readCB(ramp, group, read, filename, image,
                            lamp=lamp, lampPower=lampPower,
                            rowSequence=rowSequence):
@@ -1011,6 +1021,8 @@ class HxCmd(object):
                                                 objname=objname, fullHeader=False, cmd=cmd)
                         self.writeSingleRead(cmd, image, hdr, ramp, group, read, nChannel, irpOffset,
                                              rawImage=rawImage, rowSequence=rowSequence, isResetRead=False)
+                        self.writeQuicklookRead(cmd, image, hdr, visit, ramp, group, read, self.nread,
+                                                nChannel, irpOffset)
                     if self.doStopRamp:
                         cmd.warn(f'text="stopping ramp at read {read}..."')
                         self.nread = read
