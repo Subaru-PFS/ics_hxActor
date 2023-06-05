@@ -1020,6 +1020,7 @@ class HxCmd(object):
                         self.rampBuffer.amendPHDU(patchCards)
                         # sam.waitForAsicIdle()
                     if group >= ngroup and read == nread or self.doStopRamp:
+                        cmd.diag(f'text="closing FITS file from read cb..."')
                         self._doFinishRamp(cmd)
                         self.rampBuffer.finishFile()
                         if lampPower != 0:
@@ -1084,8 +1085,8 @@ class HxCmd(object):
             cmd.fail(f'text="ramp failed! -- {e}"')
             return
         finally:
+            cmd.diag(f'text="closing FITS file from read thread..."')
             sam.overrideFrameSize(None)
-            rampReporter.finishFile()
 
         cmd.inform('text="acquisition done; waiting for files to be closed."')
         t1 = time.time()
