@@ -950,6 +950,9 @@ class HxCmd(object):
                 else:
                     irpOffset = 0
 
+                # INSTRM-1993 investigations: turn logging up before starting ramp.
+                sam.link.readLogger.setLevel(logging.DEBUG)
+
                 def readCB(ramp, group, read, filename, image,
                            lamp=lamp, lampPower=lampPower,
                            rowSequence=rowSequence):
@@ -1011,6 +1014,8 @@ class HxCmd(object):
                                                 objname=objname, fullHeader=False, cmd=cmd)
                         self.writeSingleRead(cmd, image, hdr, ramp, group, read, nChannel, irpOffset,
                                              rawImage=rawImage, rowSequence=rowSequence, isResetRead=False)
+                        # INSTRM-1993 investigations: turn logging off after first read done.
+                        sam.link.readLogger.setLevel(logging.INFO)
                     if self.doStopRamp:
                         cmd.warn(f'text="stopping ramp at read {read}..."')
                         self.nread = read
