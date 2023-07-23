@@ -155,6 +155,8 @@ class HxCmd(object):
 
         self.backend = 'hxhal'
         self.rampConfig = None
+        self.skipSequence = [0, 0, 0, 0, 4096]
+        self.rampRunning = False
 
         if self.actor.instrument == "CHARIS":
             self.dataRoot = "/home/data/charis"
@@ -189,6 +191,7 @@ class HxCmd(object):
                 return None, fileNameB
 
         from hxActor.charis import seqPath
+        reload(seqPath)
         self.fileGenerator = seqPath.NightFilenameGen(self.dataRoot,
                                                       namesFunc = filenameFunc,
                                                       filePrefix=self.dataPrefix)
@@ -275,7 +278,7 @@ class HxCmd(object):
             configGroup = 'h4rgConfig' if self.actor.instrument == 'PFS' else 'h2rgConfig'
 
         sam.updateHxRgConfigParameters(configGroup, configName, tweaks=tweaks)
-
+        self.clearRowSkipping(cmd, doFinish=False)
         self.getHxConfig(cmd=cmd, doFinish=False)
 
         if doFinish:
@@ -297,7 +300,12 @@ class HxCmd(object):
         skip2 = self.sam.link.ReadAsicReg(0x4303)
         total = self.sam.link.ReadAsicReg(0x4034)
 
-        return read1,skip1,read2,skip2,total
+        asicSequence = [read1, skip1, read2, skip2, total]
+        if self.skipSequence != asicSequence:
+            cmd.warn(f'text="skipSequence ({asicSequence}) did not match expected ({self.skipSequence})"')
+            return self.skipSequence
+
+        return asicSequence
 
     def reportRowSequence(self, cmd, doFinish=False):
         read1,skip1,read2,skip2,total = seq = self.getRowSequence(cmd)
@@ -311,6 +319,7 @@ class HxCmd(object):
 
     def setRowSkipping(self, cmd):
         read1, skip1, read2, skip2, total = cmd.cmd.keywords['skipSequence'].values
+        self.skipSequence = [read1, skip1, read2, skip2, total]
 
         self.sam.link.WriteAsicReg(0x4300, read1)
         self.sam.link.WriteAsicReg(0x4301, skip1)
@@ -320,11 +329,10 @@ class HxCmd(object):
 
         # there is a per-frame size override. Clear that and recalculate.
         self.sam.overrideFrameSize(None)
-        #frameSize, _ = self.sam.calcFrameSize()
-        #self.sam.overrideFrameSize([frameSize[0], total])
         self.reportRowSequence(cmd, doFinish=True)
 
-    def clearRowSkipping(self, cmd):
+    def clearRowSkipping(self, cmd, doFinish=True):
+        self.skipSequence = [0, 0, 0, 0, 4096]
         self.sam.link.WriteAsicReg(0x4034, 4096)
         self.sam.link.WriteAsicReg(0x4300, 0)
         self.sam.link.WriteAsicReg(0x4301, 0)
@@ -332,7 +340,7 @@ class HxCmd(object):
         self.sam.link.WriteAsicReg(0x4303, 0)
         self.sam.overrideFrameSize(None)
 
-        self.reportRowSequence(cmd, doFinish=True)
+        self.reportRowSequence(cmd, doFinish=doFinish)
 
     def reconfigAsic(self, cmd):
         """Trigger the ASIC reconfig process. """
