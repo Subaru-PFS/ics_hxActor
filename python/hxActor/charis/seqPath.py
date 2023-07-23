@@ -130,7 +130,8 @@ class NightFilenameGen(object):
         """ Return the next filename to create. """
 
         dataDir = self.dirname()
-        seqno = self.consumeNextSeqno(seqno=seqno)
+        if seqno is None:
+            seqno = self.consumeNextSeqno(seqno=seqno)
         imgFiles = self.namesFunc(dataDir, seqno)
         
         return imgFiles
