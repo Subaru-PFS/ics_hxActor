@@ -77,13 +77,13 @@ class hxhal(object):
         magic = self.sam.link.ReadJadeReg(0xa4)
         if magic != 0xff:
             cmd.fail('text="newly connected SAM does not have register 0xa4 == 0xff. '
-                     'SAM is connected but not initialized: consider reconnect bouncePower=True"')
+                     'SAM is connected but not initialized: consider `reconnect bouncePower`"')
             return
 
         asics = self.sam.getAvailableAsics(forceGood=False)
         if len(asics) != 1 or asics[0] != 0:
             cmd.fail('text="SAM cannot find single ASIC. '
-                     'SAM is connected but not initialized: consider reconnect bouncePower=True"')
+                     'SAM is connected but not initialized: consider `reconnect bouncePower`"')
             return
 
         cmd.inform('text="connected to ASIC; updating status"')
