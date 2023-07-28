@@ -905,6 +905,10 @@ class HxCmd(object):
 
         self.lamp(lamp, 0, cmd)
 
+        if self.rampRunning:
+            cmd.fail('text="a ramp is already running!"')
+            return
+
         cmd.diag('text="ramps=%s resets=%s reads=%s rdrops=%s rgroups=%s itime=%s visit=%s exptype=%s"' %
                  (nramp, nreset, nread, ndrop, ngroup, itime, visit, exptype))
 
@@ -1093,6 +1097,7 @@ class HxCmd(object):
         This method is intended to be callable as a Thread target.
         """
 
+        self.rampRunning = True
         try:
             sam.takeRamp(nResets=nreset, nReads=nread,
                          noReturn=True, nRamps=nramp,
@@ -1107,6 +1112,7 @@ class HxCmd(object):
             return
         finally:
             cmd.diag(f'text="closing FITS file from read thread..."')
+            self.rampRunning = False
             sam.overrideFrameSize(None)
 
         cmd.inform('text="acquisition done; waiting for files to be closed."')
@@ -1139,6 +1145,10 @@ class HxCmd(object):
         exptime = float(cmdKeys['exptime'].values[0]) if ('exptime' in cmdKeys) else None
         obstime = str(cmdKeys['obstime'].values[0]) if ('obstime' in cmdKeys) else self.read0StartStamp
         doStopRamp = 'stopRamp' in cmdKeys
+
+        if not self.rampRunning:
+            cmd.fail('text="no active ramp to finish"')
+            return
 
         if doStopRamp:
             self.doStopRamp = True
