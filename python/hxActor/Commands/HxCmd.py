@@ -1454,17 +1454,14 @@ class HxCmd(object):
 
         frameTime = self.calcFrameTime()
         rampExptime = self.nread*frameTime
+        darktime = rampExptime
 
         # The spsActor may tell us what the real exposure time is expected to be. Use that if available
         # and we are not just taking a dark.
         if exptype.lower() != 'dark' and 'expectedExptime' in cmdKeys:
             exptime = float(cmdKeys['expectedExptime'].values[0])
-            darktime = rampExptime
         elif exptime is None:
             exptime = rampExptime
-            darktime = exptime
-        else:
-            darktime = rampExptime
 
         fullRampTime.end(expTime=exptime)
 
