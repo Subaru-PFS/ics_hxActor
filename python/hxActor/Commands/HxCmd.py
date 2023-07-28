@@ -72,6 +72,7 @@ class HxCmd(object):
             ('getTelemetry', '', self.getTelemetry),
             ('getAsicPower', '', self.getAsicPower),
             ('getAsicErrors', '', self.getAsicErrors),
+            ('idleAsic', '', self.idleAsic),
             ('resetAsic', '', self.resetAsic),
             ('powerOffAsic', '', self.powerOffAsic),
             ('powerOnAsic', '', self.powerOnAsic),
@@ -665,6 +666,10 @@ class HxCmd(object):
             cmd.inform('h4SpiState="OK"')
         cmd.finish()
 
+    def idleAsic(self, cmd):
+        self.sam.idleAsic()
+        self.getAsicErrors(cmd)
+
     def resetAsic(self, cmd):
         self.sam.resetAsic()
         self.getAsicErrors(cmd)
@@ -1038,6 +1043,9 @@ class HxCmd(object):
                         self.rampBuffer.finishFile()
                         if lampPower != 0:
                             self.lamp(lamp, 0, cmd)
+                        if self.doStopRamp:
+                            cmd.diag('text="idling ASIC and clearing SAM FIFO"')
+                            self.sam.idleAsic()
                         return self.doStopRamp is not True
 
                     return True
