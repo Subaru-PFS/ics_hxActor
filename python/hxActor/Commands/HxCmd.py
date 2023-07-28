@@ -1099,13 +1099,10 @@ class HxCmd(object):
 
         self.rampRunning = True
         try:
-            sam.takeRamp(nResets=nreset, nReads=nread,
-                         noReturn=True, nRamps=nramp,
-                         seqno=visit, exptype=exptype,
+            sam.takeRamp(nResets=nreset, nReads=nread, nRamps=nramp,
+                         exptype=exptype,
                          outputReset=outputReset,
-                         noFiles=noFiles,
                          actualFrameSize=readoutSize,
-                         headerCallback=headerCB,
                          readCallback=readCB)
         except Exception as e:
             cmd.fail(f'text="ramp failed! -- {e}"')
