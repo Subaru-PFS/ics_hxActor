@@ -1041,8 +1041,8 @@ class HxCmd(object):
                         self.logger.info('amending PHDU nread...')
                         self.rampBuffer.amendPHDU(patchCards)
                         # sam.waitForAsicIdle()
-                    if group >= ngroup and read == nread or self.doStopRamp:
-                        cmd.diag(f'text="closing FITS file from read cb..."')
+                    if (group >= ngroup and read == nread) or nread == 0 or self.doStopRamp:
+                        cmd.diag(f'text="closing FITS file from read cb... with stopRamp={self.doStopRamp}"')
                         self._doFinishRamp(cmd)
                         self.rampBuffer.finishFile()
                         if lampPower != 0:
