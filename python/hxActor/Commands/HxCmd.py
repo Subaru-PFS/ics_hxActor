@@ -72,6 +72,7 @@ class HxCmd(object):
             ('getTelemetry', '', self.getTelemetry),
             ('getAsicPower', '', self.getAsicPower),
             ('getAsicErrors', '', self.getAsicErrors),
+            ('idleAsic', '', self.idleAsic),
             ('resetAsic', '', self.resetAsic),
             ('powerOffAsic', '', self.powerOffAsic),
             ('powerOnAsic', '', self.powerOnAsic),
@@ -155,6 +156,8 @@ class HxCmd(object):
 
         self.backend = 'hxhal'
         self.rampConfig = None
+        self.skipSequence = [0, 0, 0, 0, 4096]
+        self.rampRunning = False
 
         if self.actor.instrument == "CHARIS":
             self.dataRoot = "/home/data/charis"
@@ -189,6 +192,7 @@ class HxCmd(object):
                 return None, fileNameB
 
         from hxActor.charis import seqPath
+        reload(seqPath)
         self.fileGenerator = seqPath.NightFilenameGen(self.dataRoot,
                                                       namesFunc = filenameFunc,
                                                       filePrefix=self.dataPrefix)
@@ -275,7 +279,7 @@ class HxCmd(object):
             configGroup = 'h4rgConfig' if self.actor.instrument == 'PFS' else 'h2rgConfig'
 
         sam.updateHxRgConfigParameters(configGroup, configName, tweaks=tweaks)
-
+        self.clearRowSkipping(cmd, doFinish=False)
         self.getHxConfig(cmd=cmd, doFinish=False)
 
         if doFinish:
@@ -297,7 +301,12 @@ class HxCmd(object):
         skip2 = self.sam.link.ReadAsicReg(0x4303)
         total = self.sam.link.ReadAsicReg(0x4034)
 
-        return read1,skip1,read2,skip2,total
+        asicSequence = [read1, skip1, read2, skip2, total]
+        if self.skipSequence != asicSequence:
+            cmd.warn(f'text="skipSequence ({asicSequence}) did not match expected ({self.skipSequence})"')
+            return self.skipSequence
+
+        return asicSequence
 
     def reportRowSequence(self, cmd, doFinish=False):
         read1,skip1,read2,skip2,total = seq = self.getRowSequence(cmd)
@@ -311,6 +320,7 @@ class HxCmd(object):
 
     def setRowSkipping(self, cmd):
         read1, skip1, read2, skip2, total = cmd.cmd.keywords['skipSequence'].values
+        self.skipSequence = [read1, skip1, read2, skip2, total]
 
         self.sam.link.WriteAsicReg(0x4300, read1)
         self.sam.link.WriteAsicReg(0x4301, skip1)
@@ -320,11 +330,10 @@ class HxCmd(object):
 
         # there is a per-frame size override. Clear that and recalculate.
         self.sam.overrideFrameSize(None)
-        #frameSize, _ = self.sam.calcFrameSize()
-        #self.sam.overrideFrameSize([frameSize[0], total])
         self.reportRowSequence(cmd, doFinish=True)
 
-    def clearRowSkipping(self, cmd):
+    def clearRowSkipping(self, cmd, doFinish=True):
+        self.skipSequence = [0, 0, 0, 0, 4096]
         self.sam.link.WriteAsicReg(0x4034, 4096)
         self.sam.link.WriteAsicReg(0x4300, 0)
         self.sam.link.WriteAsicReg(0x4301, 0)
@@ -332,7 +341,7 @@ class HxCmd(object):
         self.sam.link.WriteAsicReg(0x4303, 0)
         self.sam.overrideFrameSize(None)
 
-        self.reportRowSequence(cmd, doFinish=True)
+        self.reportRowSequence(cmd, doFinish=doFinish)
 
     def reconfigAsic(self, cmd):
         """Trigger the ASIC reconfig process. """
@@ -657,6 +666,10 @@ class HxCmd(object):
             cmd.inform('h4SpiState="OK"')
         cmd.finish()
 
+    def idleAsic(self, cmd):
+        self.sam.idleAsic()
+        self.getAsicErrors(cmd)
+
     def resetAsic(self, cmd):
         self.sam.resetAsic()
         self.getAsicErrors(cmd)
@@ -892,6 +905,10 @@ class HxCmd(object):
 
         self.lamp(lamp, 0, cmd)
 
+        if self.rampRunning:
+            cmd.fail('text="a ramp is already running!"')
+            return
+
         cmd.diag('text="ramps=%s resets=%s reads=%s rdrops=%s rgroups=%s itime=%s visit=%s exptype=%s"' %
                  (nramp, nreset, nread, ndrop, ngroup, itime, visit, exptype))
 
@@ -949,6 +966,9 @@ class HxCmd(object):
                     irpOffset = hxConfig.interleaveOffset
                 else:
                     irpOffset = 0
+
+                # INSTRM-1993 investigations: turn logging up before starting ramp.
+                sam.link.readLogger.setLevel(logging.DEBUG)
 
                 def readCB(ramp, group, read, filename, image,
                            lamp=lamp, lampPower=lampPower,
@@ -1011,6 +1031,8 @@ class HxCmd(object):
                                                 objname=objname, fullHeader=False, cmd=cmd)
                         self.writeSingleRead(cmd, image, hdr, ramp, group, read, nChannel, irpOffset,
                                              rawImage=rawImage, rowSequence=rowSequence, isResetRead=False)
+                        # INSTRM-1993 investigations: turn logging off after first read done.
+                        sam.link.readLogger.setLevel(logging.INFO)
                     if self.doStopRamp:
                         cmd.warn(f'text="stopping ramp at read {read}..."')
                         self.nread = read
@@ -1019,12 +1041,15 @@ class HxCmd(object):
                         self.logger.info('amending PHDU nread...')
                         self.rampBuffer.amendPHDU(patchCards)
                         # sam.waitForAsicIdle()
-                    if group >= ngroup and read == nread or self.doStopRamp:
-                        cmd.diag(f'text="closing FITS file from read cb..."')
+                    if (group >= ngroup and read == nread) or nread == 0 or self.doStopRamp:
+                        cmd.diag(f'text="closing FITS file from read cb... with stopRamp={self.doStopRamp}"')
                         self._doFinishRamp(cmd)
                         self.rampBuffer.finishFile()
                         if lampPower != 0:
                             self.lamp(lamp, 0, cmd)
+                        if self.doStopRamp:
+                            cmd.diag('text="idling ASIC and clearing SAM FIFO"')
+                            self.sam.idleAsic()
                         return self.doStopRamp is not True
 
                     return True
@@ -1072,20 +1097,19 @@ class HxCmd(object):
         This method is intended to be callable as a Thread target.
         """
 
+        self.rampRunning = True
         try:
-            sam.takeRamp(nResets=nreset, nReads=nread,
-                         noReturn=True, nRamps=nramp,
-                         seqno=visit, exptype=exptype,
+            sam.takeRamp(nResets=nreset, nReads=nread, nRamps=nramp,
+                         exptype=exptype,
                          outputReset=outputReset,
-                         noFiles=noFiles,
                          actualFrameSize=readoutSize,
-                         headerCallback=headerCB,
                          readCallback=readCB)
         except Exception as e:
             cmd.fail(f'text="ramp failed! -- {e}"')
             return
         finally:
             cmd.diag(f'text="closing FITS file from read thread..."')
+            self.rampRunning = False
             sam.overrideFrameSize(None)
 
         cmd.inform('text="acquisition done; waiting for files to be closed."')
@@ -1118,6 +1142,10 @@ class HxCmd(object):
         exptime = float(cmdKeys['exptime'].values[0]) if ('exptime' in cmdKeys) else None
         obstime = str(cmdKeys['obstime'].values[0]) if ('obstime' in cmdKeys) else self.read0StartStamp
         doStopRamp = 'stopRamp' in cmdKeys
+
+        if not self.rampRunning:
+            cmd.fail('text="no active ramp to finish"')
+            return
 
         if doStopRamp:
             self.doStopRamp = True
@@ -1423,17 +1451,14 @@ class HxCmd(object):
 
         frameTime = self.calcFrameTime()
         rampExptime = self.nread*frameTime
+        darktime = rampExptime
 
         # The spsActor may tell us what the real exposure time is expected to be. Use that if available
         # and we are not just taking a dark.
         if exptype.lower() != 'dark' and 'expectedExptime' in cmdKeys:
             exptime = float(cmdKeys['expectedExptime'].values[0])
-            darktime = rampExptime
         elif exptime is None:
             exptime = rampExptime
-            darktime = exptime
-        else:
-            darktime = rampExptime
 
         fullRampTime.end(expTime=exptime)
 
