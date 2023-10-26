@@ -933,7 +933,7 @@ class HxCmd(object):
         cmd.inform('ramp=%d,%d,%d,%d,%d' % (nramp,ngroup,nreset,nread,ndrop))
         cmd.inform('rampConfig=%d,%d,%d,%d,%d' % (visit,ngroup,nreset,nread,ndrop))
 
-        self.updateDaqState(cmd, always=False)
+        self.updateDaqState(cmd, always=True)
         self.hxCards = []
 
         if self.backend == 'hxhal':
