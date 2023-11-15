@@ -700,9 +700,10 @@ class HxCmd(object):
         colLabels = ['Measurement', 'Voltage(V)', 'Current(mA)', 'Power(mW)']
         rowLabels = ['VDDA', 'Vref', 'VDD3p3', 'VDD', 'VDDIO']
 
-        nBanks = 1
-        nChan = 5
-        for bank_i in range(nBanks):
+        nBanks = 4
+        nChan = len(rowLabels)
+        pBanks = 1
+        for bank_i in range(pBanks):
             if bank_i > 0:
                 cmd.inform('text=""')
             bankPower = 0.0
