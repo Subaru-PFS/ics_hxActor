@@ -87,6 +87,7 @@ class HxCmd(object):
             ('readAsic', '<reg> [<nreg>]', self.getAsicReg),
             ('writeAsic', '<reg> <value>', self.writeAsicReg),
             ('readSam', '<reg> [<nreg>]', self.getSamReg),
+            ('writeSam', '<reg> <value>', self.writeSamReg),
             ('setReadSpeed', '@(fast|slow) [@debug]', self.setReadSpeed),
             ('grabAllH4Info', '[@doRef]', self.grabAllH4Info),
             ('clearRowSkipping', '', self.clearRowSkipping),
@@ -548,6 +549,38 @@ class HxCmd(object):
             reg = regnum + i
             val = sam.link.ReadJadeReg(reg)
             cmd.inform('text="0x%04x = 0x%04x"' % (reg, val))
+
+        cmd.finish()
+
+    def writeSamReg(self, cmd):
+        """Write SAM/Jade register """
+
+        if self.backend != 'hxhal' or self.controller is None:
+            cmd.fail('text="No hxhal controller"')
+            return
+
+        cmdKeys = cmd.cmd.keywords
+        regnum = cmdKeys['reg'].values[0]
+        value = cmdKeys['value'].values[0]
+
+        sam = self.sam
+
+        try:
+            regnum = int(regnum, base=16)
+        except ValueError:
+            cmd.fail(f'text="regnum ({regnum}) is not a valid hex number"')
+            return
+
+        try:
+            value = int(value, base=0)
+        except ValueError:
+            cmd.fail(f'text="value ({value}) is not a valid int or hex number"')
+            return
+
+        cmd.inform('text="setting 0x%04x = 0x%04x"' % (regnum, value))
+        sam.link.WriteJadeReg(regnum, value)
+        val = sam.link.ReadJadeReg(regnum)
+        cmd.inform('text="0x%04x = 0x%04x"' % (regnum, val))
 
         cmd.finish()
 
