@@ -1502,6 +1502,8 @@ class HxCmd(object):
                 allCards.append(dict(name='OBJECT',
                                      value=objname,
                                      comment='user-specified name'))
+                
+            allCards.append(dict(name='W_H4PTCH', value=False, comment='PHDU has not been patched'))
 
             # mhsCards = self._getMhsHeader(cmd)
             # if objname is not None:
