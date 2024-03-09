@@ -74,7 +74,7 @@ class OurActor(actorcore.ICC.ICC):
             self.attachAllControllers()
             self.everConnected = True
 
-            models = ['iic', 'sps', 'gen2', 'pfilamps', 'dcb', 'dcb2']
+            models = ['scr', 'iic', 'sps', 'gen2', 'pfilamps', 'dcb', 'dcb2']
             models.extend([m % self.ids.idDict for m in ('enu_%(specName)s',)])
             models.extend([f'xcu_{self.piepanName}'])
             models.extend([f'hx_{self.piepanName}'])

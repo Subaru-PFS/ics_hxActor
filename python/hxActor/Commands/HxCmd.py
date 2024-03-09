@@ -930,6 +930,7 @@ class HxCmd(object):
             self.getTimeCards(cmd=cmd)
             self.everRun = True
 
+        self.visit = visit
         cmd.inform('ramp=%d,%d,%d,%d,%d' % (nramp,ngroup,nreset,nread,ndrop))
         cmd.inform('rampConfig=%d,%d,%d,%d,%d' % (visit,ngroup,nreset,nread,ndrop))
 
@@ -1178,7 +1179,8 @@ class HxCmd(object):
             newTimeCards, exptime = self.getTimeCards(cmd, obstime=obstime, exptime=exptime)
             patchCards.extend(newTimeCards)
 
-        newLampCards = self.hdrMgr.genLampCards(cmd, exptime)
+        newLampCards = self.hdrMgr.genLampCards(cmd, exptime, 
+                                                visit=self.visit)
         patchCards.extend(newLampCards)
         patchCards.append(dict(name='W_H4PTCH', value=True, comment='PHDU has been patched'))
 
@@ -1490,7 +1492,7 @@ class HxCmd(object):
                                                    obstime=obstime)
 
             newCards = hdrMgr.finishHeaderKeys(cmd, visit,
-                                               timeCards, exptime)
+                                               timeCards, expTime=exptime)
             allCards.extend(newCards)
 
             hxCards = self.genAllH4Cards(cmd)
@@ -1510,8 +1512,7 @@ class HxCmd(object):
             #     mhsCards = [c for c in mhsCards if c['name'] != 'OBJECT']
 
         else:
-            allCards.append(dict(name='INHERIT', value=True))
-            allCards.extend(wcs.pixelWcsCards())
+            allCards.extend(self.hdrMgr.getImageCards(cmd))
         hxReadCards = self._getHxHeader(cmd)
         allCards.extend(hxReadCards)
 
