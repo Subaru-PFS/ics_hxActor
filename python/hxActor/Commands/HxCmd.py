@@ -79,7 +79,7 @@ class HxCmd(object):
             ('setVoltage', '<name> <voltage>', self.setVoltage),
             ('ramp',
              '[<nramp>] [<nreset>] [<nread>] [<ngroup>] [<ndrop>] [<itime>] '
-             '[<visit>] [<exptype>] [<objname>] [<expectedExptime>] '
+             '[<visit>] [<exptype>] [<objname>] [<expectedExptime>] [<pfsDesign>] '
              '[<lamp>] [<lampPower>] [<readoutSize>] [@noOutputReset] [@rawImage]',
              self.takeOrSimRamp),
             ('ramp', 'finish [<exptime>] [<obstime>] [@stopRamp]', self.finishRamp),
@@ -151,7 +151,11 @@ class HxCmd(object):
                                         keys.Key("idleModeOption", types.Int(),
                                                  help="what to do while idle: 0=nothing, 1=reset, 2=reset+read"),
                                         keys.Key('skipSequence', types.Int()*5,
-                                                 help="read/skip/read/skip/total sequence for rowSkipping")
+                                                 help="read/skip/read/skip/total sequence for rowSkipping"),
+                                        keys.Key("pfsDesign",
+                                                 types.Long(), types.String(),
+                                                 help='the pfsDesignId and name to use'),
+
                                         )
 
         self.backend = 'hxhal'
@@ -878,6 +882,7 @@ class HxCmd(object):
         lampPower = cmdKeys['lampPower'].values[0] if ('lampPower' in cmdKeys) else 0
         readoutSize = cmdKeys['readoutSize'].values if ('readoutSize' in cmdKeys) else None
         idleModeOption = cmdKeys['idleModeOption'].values[0] if ('idleModeOption' in cmdKeys) else None
+        pfsDesign = cmdKeys['pfsDesign'].values if 'pfsDesign' in cmdKeys else None
         outputReset = 'noOutputReset' not in cmdKeys
         rawImage = 'rawImage' in cmdKeys
 
@@ -1013,6 +1018,7 @@ class HxCmd(object):
 
                         phdr = self.getPfsHeader(visit=visit, exptype=exptype,
                                                  obstime=self.read0StartStamp,
+                                                 pfsDesign=pfsDesign,
                                                  objname=objname, cmd=cmd)
                         self.logger.info(f'filename={rampFilename}')
                         self.rampBuffer.createFile(rampReporter, rampFilename, phdr)
@@ -1477,6 +1483,7 @@ class HxCmd(object):
     def getPfsHeader(self, visit=None,
                      exptype='TEST',
                      objname=None, obstime=None,
+                     pfsDesign=None,
                      fullHeader=True, cmd=None):
 
         allCards = []
@@ -1492,7 +1499,8 @@ class HxCmd(object):
                                                    obstime=obstime)
 
             newCards = hdrMgr.finishHeaderKeys(cmd, visit,
-                                               timeCards, expTime=exptime)
+                                               timeCards, expTime=exptime,
+                                               pfsDesign=pfsDesign)
             allCards.extend(newCards)
 
             hxCards = self.genAllH4Cards(cmd)
