@@ -175,7 +175,7 @@ class HxCmd(object):
                 doCompress = self.actor.actorConfig[site].get('compress', True)
             except Exception as e:
                 raise RuntimeError(f'failed to fetch dataRoot, etc. for {site}: {e}')
-
+            
             self.dataRoot = dataRoot
             self.dataPrefix = None
             self.logger.info(f'using dataRoot={self.dataRoot} with rampRoot={rampRoot} site={site}')
@@ -1371,11 +1371,19 @@ class HxCmd(object):
 
         cfg = daqState.hxConfig
         frameTime = self.calcFrameTime()
+        preampGain = self.sam.getGainFromTable(cfg.preampGain)
+        try:
+            detectorGain = self.actor.actorConfig['gain']
+            self.rampGain = detectorGain / preampGain
+        except Exception as e:
+            self.rampGain = 9999.0
+            cmd.warn(f'text="failed to get configured gain: {e}"')
+            
         _replaceCard(cards, dict(name="W_FRMTIM", value=frameTime,
                                  comment='[s] individual read time, per ASIC'))
         _replaceCard(cards, dict(name="W_H4FRMT", value=frameTime,
                                  comment='[s] individual read time, per ASIC'))
-        _replaceCard(cards, dict(name='W_H4IRP', value=int(cfg.h4Interleaving),
+        _replaceCard(cards, dict(name='W_H4IRP', value=bool(cfg.h4Interleaving),
                                  comment='whether we are using IRP-enabled firmware'))
         _replaceCard(cards, dict(name='W_H4IRPN', value=int(cfg.interleaveRatio),
                                  comment='the number of data pixels per ref pixel'))
@@ -1386,11 +1394,9 @@ class HxCmd(object):
                                  comment='how many readout channels we have'))
         _replaceCard(cards, dict(name='W_H4GNST', value=int(cfg.preampGain),
                                  comment='the ASIC preamp gain setting'))
-        _replaceCard(cards, dict(name='W_H4GAIN', value=self.sam.getGainFromTable(cfg.preampGain),
+        _replaceCard(cards, dict(name='W_H4GAIN', value=preampGain),
                                  comment='the ASIC preamp gain factor'))
-        _replaceCard(cards, dict(name='W_H4GAIN', value=self.sam.getGainFromTable(cfg.preampGain),
-                                 comment='the ASIC preamp gain factor'))
-
+ 
         try:
             ver = self.sam.instrumentTweaks.formatVersion
         except:
@@ -1471,8 +1477,8 @@ class HxCmd(object):
         fullRampTime.end(expTime=exptime)
 
         timecards = []
-        timecards.append(dict(name='EXPTIME', value=exptime))
-        timecards.append(dict(name='DARKTIME', value=darktime))
+        timecards.append(dict(name='EXPTIME', value=exptime, comment='[s] illumination time from shutter or lamps.'))
+        timecards.append(dict(name='DARKTIME', value=darktime, comment='[s] ramp time, normally W_H4FRMT*W_H4NRED'))
         timecards.extend(fullRampTime.getCards())
 
         t1 = time.time()
@@ -1480,6 +1486,22 @@ class HxCmd(object):
             cmd.warn(f'text="it took {t1-t0:0.2f} seconds to fetch time cards!"')
         return timecards, exptime
 
+    def getGain(self, cmd):
+        """Return the gain setting for the current ramp.
+
+        The gain setting from the actor configuration is for a preamp gain of 1.0. We correct here
+        to the actual gain setting for this ramp.
+        """
+
+        try:
+            gain = self.actor.actorConfig['gain']
+        except Exception as e:
+            cmd.warn(f'text="failed to get gain: {e}"')
+            gain = 9999.0
+
+
+        return gain
+    
     def getPfsHeader(self, visit=None,
                      exptype='TEST',
                      objname=None, obstime=None,
@@ -1497,9 +1519,10 @@ class HxCmd(object):
 
             timeCards, exptime = self.getTimeCards(cmd=cmd, exptype=exptype,
                                                    obstime=obstime)
-
+                
             newCards = hdrMgr.finishHeaderKeys(cmd, visit,
                                                timeCards, expTime=exptime,
+                                               gain=self.rampGain,
                                                pfsDesign=pfsDesign)
             allCards.extend(newCards)
 
@@ -1537,7 +1560,7 @@ class HxCmd(object):
     def getResetHeader(self, cmd):
         allCards = []
 
-        allCards.append(dict(name='INHERIT', value=True))
+        allCards.append(dict(name='INHERIT', value=True, comment='Recommend using PHDU cards'))
         allCards.extend(self._getHxHeader(cmd))
         return allCards
 
