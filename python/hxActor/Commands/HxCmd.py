@@ -1394,7 +1394,7 @@ class HxCmd(object):
                                  comment='how many readout channels we have'))
         _replaceCard(cards, dict(name='W_H4GNST', value=int(cfg.preampGain),
                                  comment='the ASIC preamp gain setting'))
-        _replaceCard(cards, dict(name='W_H4GAIN', value=preampGain),
+        _replaceCard(cards, dict(name='W_H4GAIN', value=preampGain,
                                  comment='the ASIC preamp gain factor'))
  
         try:
@@ -1520,13 +1520,13 @@ class HxCmd(object):
             timeCards, exptime = self.getTimeCards(cmd=cmd, exptype=exptype,
                                                    obstime=obstime)
                 
+            hxCards = self.genAllH4Cards(cmd)
             newCards = hdrMgr.finishHeaderKeys(cmd, visit,
                                                timeCards, expTime=exptime,
                                                gain=self.rampGain,
                                                pfsDesign=pfsDesign)
             allCards.extend(newCards)
 
-            hxCards = self.genAllH4Cards(cmd)
             allCards.extend(hxCards)
             if self.actor.ids.site == 'J':
                 allCards.extend(self.genJhuCards(cmd))
