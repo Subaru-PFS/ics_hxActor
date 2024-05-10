@@ -2,6 +2,7 @@
 
 from importlib import reload
 
+import datetime
 import logging
 import os.path
 import pickle
@@ -22,7 +23,6 @@ from ics.utils.fits import fitsWriter
 from ics.utils.fits import timecards as actortime
 from ics.utils.fits import wcs
 from ics.utils.sps import fits as spsFits
-from ics.utils import time as pfsTime
 
 from ics.utils.sps import hxramp
 from hxActor.Commands import ramp
@@ -35,12 +35,32 @@ reload(rampSim)
 reload(spsFits)
 
 def isoTs(t=None):
-    if t is None:
-        ts = pfsTime.Time.now()
-    else:
-        ts = pfsTime.Time.fromtimestamp(t)
+    """Return an ISO formatted time string for local (HST) time."""
 
-    return ts.isoformat()
+    # Make a timezone-aware datetime object, regardless of the source.
+    HST = datetime.timezone(datetime.timedelta(hours=-10))
+
+    if t is None:
+        # Unix timestamps are UTC
+        ts = datetime.datetime.now(tz=datetime.timezone.utc)
+    elif isinstance(t, float):
+        # Our time strings are always HST
+        ts = datetime.datetime.fromtimestamp(t, tz=HST)
+    else:
+        ts = datetime.datetime.fromisoformat(t)
+        if t[-1] == 'Z':
+            TZ = datetime.timezone.utc
+        else:
+            TZ = HST
+
+        # Move the time offset to HST *without* adjusting the time.
+        ts = ts.replace(tzinfo=TZ)
+
+    # And return local (HST) time in ISO-ish format.
+    ts = ts.astimezone(HST)
+    logging.info(f'isoTs (local/aware): {ts}')
+
+    return ts.strftime('%Y-%m-%dT%H:%M:%S.%f')
 
 class HxCmd(object):
 
@@ -1396,7 +1416,7 @@ class HxCmd(object):
                                  comment='the ASIC preamp gain setting'))
         _replaceCard(cards, dict(name='W_H4GAIN', value=preampGain,
                                  comment='the ASIC preamp gain factor'))
- 
+
         try:
             ver = self.sam.instrumentTweaks.formatVersion
         except:
@@ -1421,6 +1441,10 @@ class HxCmd(object):
             allCards.extend(self.lampCards)
 
         return allCards
+
+    def _datestrToAstrotime(self, timeStr):
+        return astropy.time.Time(self.isoTs(timeStr),
+                                 scale='utc', format='datetime')
 
     def getTimeCards(self, cmd, exptype='', obstime=None, exptime=None):
         """Get all Subaru-compliant FITS time cards.
@@ -1451,7 +1475,7 @@ class HxCmd(object):
             exptime = float(exptime)
         if obstime is not None:
             try:
-                obstime = pfsTime.Time.fromisoformat(str(obstime))
+                obstime = self._datestrToAstrotime(obstime)
             except Exception as e:
                 cmd.warn(f'text="FAILED to parse obstime={obstime}: {e}"')
                 obstime = None
@@ -1526,7 +1550,6 @@ class HxCmd(object):
                                                gain=self.rampGain,
                                                pfsDesign=pfsDesign)
             allCards.extend(newCards)
-
             allCards.extend(hxCards)
             if self.actor.ids.site == 'J':
                 allCards.extend(self.genJhuCards(cmd))
