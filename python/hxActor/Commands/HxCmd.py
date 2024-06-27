@@ -1443,7 +1443,7 @@ class HxCmd(object):
         return allCards
 
     def _datestrToAstrotime(self, timeStr):
-        return astropy.time.Time(self.isoTs(timeStr),
+        return astropy.time.Time(isoTs(timeStr),
                                  scale='utc', format='datetime')
 
     def getTimeCards(self, cmd, exptype='', obstime=None, exptime=None):
