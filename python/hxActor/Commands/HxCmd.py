@@ -35,7 +35,30 @@ reload(rampSim)
 reload(spsFits)
 
 def isoTs(t=None):
-    """Return an ISO formatted time string for local (HST) time."""
+    """Return local (HST) time, and a formatted time string without timezone.
+
+    Subaru runs on HST, and that is what we pass around and store. The
+    local fiddle is that while UTC time strings get a trailing 'Z', local
+    times do *not* get a timezone. This is all very horrible.
+
+    The outputs are fed to astropy.time for FITS time cards,
+    and/or are passed as keyword values for other actors.
+
+    Parameters
+    ----------
+    t : None, float, str
+      If None: use "now"
+      If float, treat as unix seconds in HST
+      If string, treat time as UTC if there is a trailing 'Z',
+         otherwise treat as HST.
+
+    Returns
+    -------
+    timestamp : timezone-aware datetime, in HST
+    timestring : string of that, but without "+10:00" etc.
+    """
+
+    logging.info(f'isoTs({t})')
 
     # Make a timezone-aware datetime object, regardless of the source.
     HST = datetime.timezone(datetime.timedelta(hours=-10))
@@ -44,7 +67,7 @@ def isoTs(t=None):
         # Unix timestamps are UTC
         ts = datetime.datetime.now(tz=datetime.timezone.utc)
     elif isinstance(t, float):
-        # Our time strings are always HST
+        # Our timestamps are always HST
         ts = datetime.datetime.fromtimestamp(t, tz=HST)
     else:
         ts = datetime.datetime.fromisoformat(t)
@@ -60,7 +83,7 @@ def isoTs(t=None):
     ts = ts.astimezone(HST)
     logging.info(f'isoTs (local/aware): {ts}')
 
-    return ts.strftime('%Y-%m-%dT%H:%M:%S.%f')
+    return ts, ts.strftime('%Y-%m-%dT%H:%M:%S.%f')
 
 class HxCmd(object):
 
@@ -1021,8 +1044,8 @@ class HxCmd(object):
                         t0 = time.time()
                         self.readTime = self.calcFrameTime()
                         self.read0Start = t0 + nreset*self.readTime
-                        resetStartStamp = isoTs(t0)
-                        self.read0StartStamp = isoTs(self.read0Start)
+                        _, resetStartStamp = isoTs(t0)
+                        _, self.read0StartStamp = isoTs(self.read0Start)
                         self.exptime = nread * self.readTime
                         cmd.inform(f'readTimes={visit},{resetStartStamp},{self.read0StartStamp},{self.readTime:0.3f}')
                         return True
@@ -1443,7 +1466,8 @@ class HxCmd(object):
         return allCards
 
     def _datestrToAstrotime(self, timeStr):
-        return astropy.time.Time(isoTs(timeStr),
+        dt, ts = isoTs(timeStr)
+        return astropy.time.Time(dt,
                                  scale='utc', format='datetime')
 
     def getTimeCards(self, cmd, exptype='', obstime=None, exptime=None):
