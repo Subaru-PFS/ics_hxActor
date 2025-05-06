@@ -122,8 +122,10 @@ class HxCmd(object):
             ('setVoltage', '<name> <voltage>', self.setVoltage),
             ('ramp',
              '[<nramp>] [<nreset>] [<nread>] [<ngroup>] [<ndrop>] [<itime>] '
-             '[<visit>] [<exptype>] [<objname>] [<expectedExptime>] [<pfsDesign>] '
-             '[<lamp>] [<lampPower>] [<readoutSize>] [@noOutputReset] [@rawImage]',
+             '[<visit>] [<exptype>] [<objname>] [<expectedExptime>] '
+             '[<pfsDesign>] [<metadata>] '
+             '[<lamp>] [<lampPower>] [<readoutSize>] '
+             '[@noOutputReset] [@rawImage]',
              self.takeOrSimRamp),
             ('ramp', 'finish [<exptime>] [<obstime>] [@stopRamp]', self.finishRamp),
             ('reloadLogic', '', self.reloadLogic),
@@ -198,6 +200,11 @@ class HxCmd(object):
                                         keys.Key("pfsDesign",
                                                  types.Long(), types.String(),
                                                  help='the pfsDesignId and name to use'),
+                                        keys.Key("metadata",
+                                                 types.Int()*3,
+                                                 types.String()*4,
+                                                 help='header stuffers from iic and gen2'),
+
 
                                         )
 
@@ -926,6 +933,7 @@ class HxCmd(object):
         readoutSize = cmdKeys['readoutSize'].values if ('readoutSize' in cmdKeys) else None
         idleModeOption = cmdKeys['idleModeOption'].values[0] if ('idleModeOption' in cmdKeys) else None
         pfsDesign = cmdKeys['pfsDesign'].values if 'pfsDesign' in cmdKeys else None
+        metadata = cmdKeys['metadata'].values if 'metadata' in cmdKeys else None
         outputReset = 'noOutputReset' not in cmdKeys
         rawImage = 'rawImage' in cmdKeys
 
@@ -1062,6 +1070,7 @@ class HxCmd(object):
                         phdr = self.getPfsHeader(visit=visit, exptype=exptype,
                                                  obstime=self.read0StartStamp,
                                                  pfsDesign=pfsDesign,
+                                                 metadata=metadata,
                                                  objname=objname, cmd=cmd)
                         self.logger.info(f'filename={rampFilename}')
                         self.rampBuffer.createFile(rampReporter, rampFilename, phdr)
@@ -1549,11 +1558,12 @@ class HxCmd(object):
 
 
         return gain
-    
+
     def getPfsHeader(self, visit=None,
                      exptype='TEST',
                      objname=None, obstime=None,
                      pfsDesign=None,
+                     metadata=None,
                      fullHeader=True, cmd=None):
 
         allCards = []
@@ -1567,12 +1577,13 @@ class HxCmd(object):
 
             timeCards, exptime = self.getTimeCards(cmd=cmd, exptype=exptype,
                                                    obstime=obstime)
-                
+
             hxCards = self.genAllH4Cards(cmd)
             newCards = hdrMgr.finishHeaderKeys(cmd, visit,
                                                timeCards, expTime=exptime,
                                                gain=self.rampGain,
-                                               pfsDesign=pfsDesign)
+                                               pfsDesign=pfsDesign,
+                                               metadata=metadata)
             allCards.extend(newCards)
             allCards.extend(hxCards)
             if self.actor.ids.site == 'J':
@@ -1582,8 +1593,9 @@ class HxCmd(object):
                 allCards.append(dict(name='OBJECT',
                                      value=objname,
                                      comment='user-specified name'))
-                
-            allCards.append(dict(name='W_H4PTCH', value=False, comment='PHDU has not been patched'))
+
+            allCards.append(dict(name='W_H4PTCH', value=False,
+                                 comment='PHDU has not been patched'))
 
             # mhsCards = self._getMhsHeader(cmd)
             # if objname is not None:
