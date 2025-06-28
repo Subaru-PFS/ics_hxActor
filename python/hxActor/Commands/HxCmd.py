@@ -981,8 +981,9 @@ class HxCmd(object):
         cmd.inform('text="configuring ramp..."')
         self.nread = nread
 
-        if not self.everRun:
+        if True or not self.everRun:
             cmd.inform('text="blowing astropy nose..."')
+            self.read0StartStamp = None
             self.getTimeCards(cmd=cmd)
             self.everRun = True
 
@@ -1286,21 +1287,6 @@ class HxCmd(object):
         cmd.finish('text="%d ramps, elapsed=%0.3f, perRamp=%0.3f, perRead=%0.3f"' %
                    (nramp, dt, dt/nramp, dt/(nramp*(nread+nreset+ndrop))))
 
-    def _getMhsHeader(self, cmd):
-        """ Gather FITS cards from all other actors we are interested in. """
-
-        t0 = time.time()
-        cmd.debug('text="fetching MHS cards..."')
-        models = set(self.actor.models.keys())
-        models = sorted(models - {self.actor.name})
-        cards = fitsUtils.gatherHeaderCards(cmd, self.actor, modelNames=models, shortNames=True)
-        cmd.debug('text="fetched %d MHS cards..."' % (len(cards)))
-        t1 =  time.time()
-        if t1 - t0 > 1:
-            cmd.warn(f'text="it took {t1-t0:0.2f} seconds to fetch MHS cards!"')
-
-        return cards
-
     def _getH4MhsHeader(self, cmd):
         """ Gather FITS cards from ourself. """
 
@@ -1596,11 +1582,6 @@ class HxCmd(object):
 
             allCards.append(dict(name='W_H4PTCH', value=False,
                                  comment='PHDU has not been patched'))
-
-            # mhsCards = self._getMhsHeader(cmd)
-            # if objname is not None:
-            #     mhsCards = [c for c in mhsCards if c['name'] != 'OBJECT']
-
         else:
             allCards.extend(self.hdrMgr.getImageCards(cmd))
         hxReadCards = self._getHxHeader(cmd)
