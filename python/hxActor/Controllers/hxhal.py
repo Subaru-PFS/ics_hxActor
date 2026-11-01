@@ -31,6 +31,14 @@ class hxhal(object):
 
         self.daqState = DaqState()
 
+    def requireSam(self):
+        """Return the SAM, or raise a useful error if we are not connected to it. """
+
+        if self.sam is None:
+            raise RuntimeError('no connection to the SAM: it might be powered off, or was when the actor started. '
+                               'Once it is on, try "reconnect"')
+        return self.sam
+
     def start(self, cmd=None):
         return self.connect(cmd=cmd)
 
@@ -66,12 +74,18 @@ class hxhal(object):
             link = self.actor.actorConfig.get('link', 'usb')
             samId = self.actor.actorConfig['serialNumbers']['sam']
         cmd.inform('text="connecting to instrument=%s link=%s samId=%s"' % (instrumentName, link, samId))
+
+        # Connecting does not touch the ASIC, so what we last wrote to it
+        # is still what it has (INSTRM-2317).
+        writtenConfig = getattr(self.sam, 'writtenConfig', None)
+
         self.sam = samControl.SAM(linkType=link, deviceId=samId,
                                   bouncePower=False,
                                   jadeRegisterFile=None,
                                   asicRegisterFile=None,
                                   instrumentName=instrumentName,
                                   logger=None, logLevel=logging.DEBUG)
+        self.sam.writtenConfig = writtenConfig
 
         # Check to see whether the SAM has been initialized...
         magic = self.sam.link.ReadJadeReg(0xa4)
@@ -147,7 +161,8 @@ class hxhal(object):
 
             cmd.warn(f'text="power-cycling and configuring SAM and ASIC; link={linkType}'
                      f'firmware={firmwareName} config={configName}"')
-            self.sam.powerDownAsic()
+            if self.sam is not None:
+                self.sam.powerDownAsic()
 
             try:
                 self.sam = samControl.SAM(linkType=linkType, deviceId=samId,
@@ -188,12 +203,13 @@ class hxhal(object):
         - a few bias voltage readings -- these are too expensive to get all.
         - the ROIC SPI registers.
         """
-        self.sam.getHxRGConfigParameters()
-        self.daqState.hxConfig = self.sam.hxrgDetectorConfig.copy()
-        self.daqState.spiRegisters = self.sam.readAllH4SpiRegs()
+        sam = self.requireSam()
+        sam.getHxRGConfigParameters()
+        self.daqState.hxConfig = sam.hxrgDetectorConfig.copy()
+        self.daqState.spiRegisters = sam.readAllH4SpiRegs()
 
     def sampleVoltage(self, voltageName):
-        sam = self.sam
+        sam = self.requireSam()
 
         try:
             reading, raw = sam.sampleVoltage(voltageName)
@@ -210,7 +226,7 @@ class hxhal(object):
         Also updates self.daqState.voltageSettings
         """
 
-        vlist = self.sam.getBiasVoltages()
+        vlist = self.requireSam().getBiasVoltages()
         settings = self.daqState.voltageSettings = dict()
         for name, setting in vlist:
             settings[name] = setting
@@ -235,7 +251,8 @@ class hxhal(object):
     def getRefCal(self):
         """Sample the ASIC reference offset and gain. """
 
-        self.sam._buildVoltageTable()
-        aduPerVolt, aduOffset = self.sam.calibrateRefOffsetAndGain()
+        sam = self.requireSam()
+        sam._buildVoltageTable()
+        aduPerVolt, aduOffset = sam.calibrateRefOffsetAndGain()
 
         return aduPerVolt, aduOffset

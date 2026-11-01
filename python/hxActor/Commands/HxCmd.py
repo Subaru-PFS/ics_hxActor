@@ -107,6 +107,7 @@ class HxCmd(object):
              '[<idleModeOption>]',
              self.hxconfig),
             ('reconfigAsic', '', self.reconfigAsic),
+            ('getHxConfig', '', self.getHxConfig),
             ('getVoltage', '<name>', self.sampleVoltage),
             ('getVoltageSettings', '', self.getVoltageSettings),
             ('getVoltages', '', self.getVoltages),
@@ -259,7 +260,9 @@ class HxCmd(object):
     @property
     def sam(self):
         ctrlr = self.actor.controllers.get(self.backend, None)
-        return ctrlr.sam
+        if ctrlr is None:
+            raise RuntimeError(f'no {self.backend} controller')
+        return ctrlr.requireSam()
 
     def bounce(self, cmd):
         self.controller.disconnect()
@@ -413,6 +416,9 @@ class HxCmd(object):
     def getHxConfig(self, cmd, doFinish=True):
         self.grabAllH4Info(cmd, doFinish=False)
         cfg = self.controller.daqState.hxConfig
+        problems = self.sam.configReadbackProblems
+        if problems:
+            cmd.warn(f'text="ASIC config readback problems: {"; ".join(problems)}"')
         self.reportRowSequence(cmd)
 
         keys = []
@@ -840,19 +846,22 @@ class HxCmd(object):
             newImage[:canRead, :] = image[:canRead]
             haveRead += canRead
         nextStart = read1 + skip1
-        cmd.inform(f'text="rows1={read1},{skip1},{total}; haveRead={haveRead},{nextStart} dest={newImage.shape}"')
+        cmd.debug(f'text="rows1={read1},{skip1},{total}; haveRead={haveRead},{nextStart} dest={newImage.shape}"')
+        if haveRead < total and read2 <= 0:
+            raise RuntimeError(f'cannot place rows with rowSequence={rowSequence}: '
+                               f'only {haveRead} of {total} rows can be read')
         while haveRead < total:
             wantToRead = read2
             canRead = min(wantToRead, total-haveRead)
-            cmd.inform(f'text="dest={nextStart},{wantToRead},{canRead}; src={haveRead},{wantToRead},{canRead}"')
+            cmd.debug(f'text="dest={nextStart},{wantToRead},{canRead}; src={haveRead},{wantToRead},{canRead}"')
 
             newImage[nextStart:nextStart+canRead, :] = image[haveRead:haveRead+canRead]
             haveRead += canRead
             nextStart += canRead
             nextStart += skip2
-            cmd.inform(f'text="end2={haveRead},{total} nextStart={nextStart}"')
+            cmd.debug(f'text="end2={haveRead},{total} nextStart={nextStart}"')
 
-        cmd.inform(f'text="haveRead={total},{haveRead}"')
+        cmd.debug(f'text="haveRead={total},{haveRead}"')
         return newImage
 
     def writeSingleRead(self, cmd, image, hdr, ramp, group, read, nChannel, irpOffset,
@@ -877,7 +886,7 @@ class HxCmd(object):
                 ref = data*0
 
         extnamePrefix = 'RESET_' if isResetRead else ''
-        cmd.inform(f'text="adding HDUs at group={group} read={read} isReset={isResetRead} shape={data.shape} ref={data.shape} med={np.median(data)}"')
+        cmd.inform(f'text="adding HDUs at group={group} read={read} isReset={isResetRead} shape={data.shape} ref={None if ref is None else ref.shape} med={np.median(data)}"')
         self.rampBuffer.addHdu(data, hdr, hduId=(ramp, group, read),
                                 extname=f'{extnamePrefix}IMAGE_{read}')
         if ref is not None:
@@ -951,13 +960,18 @@ class HxCmd(object):
         else:
             rowSequence = self.reportRowSequence(cmd)
             nominalSize, _ = self.sam.calcFrameSize()
+            read1, skip1, read2, skip2, total = rowSequence
 
-            if nominalSize[1] != rowSequence[-1]:
-                readoutSize = [nominalSize[0], rowSequence[-1]]
-                cmd.warn(f'text="rowSequence override: {rowSequence} to framesize {readoutSize}"')
-            else:
-                cmd.warn(f'text="rowSequence NO override: {rowSequence} vs {nominalSize}"')
+            if nominalSize[1] == total:
+                cmd.debug(f'text="rowSequence NO override: {rowSequence} vs {nominalSize}"')
                 rowSequence = None
+            elif read2 <= 0 and read1 < total:
+                # placeSkippedRows could never fill the frame (INSTRM-2317).
+                cmd.warn(f'text="ignoring unusable rowSequence {rowSequence} vs {nominalSize}"')
+                rowSequence = None
+            else:
+                readoutSize = [nominalSize[0], total]
+                cmd.warn(f'text="rowSequence override: {rowSequence} to framesize {readoutSize}"')
 
         self.lamp(lamp, 0, cmd)
 
@@ -1332,13 +1346,11 @@ class HxCmd(object):
     def calcFrameTime(self):
         """Calculate the net time to readout a single read/frame.
 
-        We cheat slightly, but should fix that. Basically, there are
-        two ASIC registers which give the number of pixel times per
-        row and the number of row times per read. The IRP firmware
-        always pads the row times by 9 pixels, and I am pulling that
-        out rather than calculating it on the fly. But we do believe
-        the timings using that, for all number of channels and (I
-        think) all IRP ratios.
+        There are two ASIC registers (h4008, h4009) which give the
+        number of pixel times per row and the number of row times per
+        read, but we do not trust their readbacks (INSTRM-2317). So the
+        geometry and padding measured at Subaru are used instead: see
+        `sam.calcGeometricFrameTime()`.
 
         """
 
@@ -1350,13 +1362,7 @@ class HxCmd(object):
         pixTime = cfg.pixelTime
         chanWidth = width//cfg.numOutputs
 
-        # Get this correctly, with h4008 - 4096/cfg.numOutputs (137 - 128 for 32 channels)
-        rowPad = 9
-
-        # And h4009:
-        framePad = 1
-
-        frameTime = pixTime*(chanWidth + rowPad) * (height + framePad)
+        frameTime = self.sam.calcGeometricFrameTime(pixTime, frameSize, cfg.numOutputs)
         self.logger.info(f'calcFrameTime: {frameTime} pixTime={pixTime} frameSize={frameSize} '
                          f'chanWidth={chanWidth}')
         return frameTime
